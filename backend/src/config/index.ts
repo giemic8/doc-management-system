@@ -14,4 +14,11 @@ export const config = {
   redisHost: process.env.REDIS_HOST || 'localhost',
   redisPort: parseInt(process.env.REDIS_PORT || '6379', 10),
   storagePath: process.env.STORAGE_PATH || path.join(__dirname, '../../../storage'),
+
+  // LLM provider config for AI features (chat/RAG, metadata extraction).
+  // Mirrors worker/src/ai_extractor.py's env var names exactly so ops only
+  // has to set one set of values for both the worker and the backend.
+  llmProvider: (process.env.LLM_PROVIDER || 'ollama') as 'ollama' | 'openai',
+  ollamaHost: process.env.OLLAMA_HOST || 'http://localhost:11434',
+  openaiApiKey: process.env.OPENAI_API_KEY || '',
 };

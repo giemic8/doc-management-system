@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import axios from 'axios';
+import { config } from '../config';
 
 const EMBEDDING_DIM = 768;
 
@@ -33,4 +35,50 @@ export function generateEmbedding(text: string): number[] {
   const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
   if (norm === 0) return vector;
   return vector.map((v) => v / norm);
+}
+
+/**
+ * Calls the configured real embedding provider (Ollama or OpenAI) to embed
+ * a piece of text, mirroring worker/src/embedding_generator.py's
+ * Ollama-first, deterministic-fallback strategy so the Node backend and
+ * the Python worker behave consistently when asked to embed text at query
+ * time (e.g. a chat question in the RAG pipeline). Ingestion-time chunk
+ * embeddings are still produced exclusively by the worker; this function
+ * exists only for embedding a QUERY (search / chat) from the backend
+ * process, where round-tripping through the worker's queue would add
+ * unnecessary latency to an interactive request.
+ *
+ * Falls back to the deterministic `generateEmbedding` above whenever the
+ * configured provider is unreachable or misconfigured, so search/chat
+ * remain functional (with reduced semantic quality) in local dev/CI
+ * environments that don't run Ollama or hold an OpenAI key.
+ */
+export async function computeEmbedding(text: string): Promise<number[]> {
+  try {
+    if (config.llmProvider === 'ollama') {
+      const res = await axios.post(
+        `${config.ollamaHost}/api/embeddings`,
+        { model: 'nomic-embed-text', prompt: text },
+        { timeout: 15000 }
+      );
+      const embedding = res.data?.embedding;
+      if (Array.isArray(embedding) && embedding.length === EMBEDDING_DIM) {
+        return embedding;
+      }
+    } else if (config.llmProvider === 'openai' && config.openaiApiKey) {
+      const res = await axios.post(
+        'https://api.openai.com/v1/embeddings',
+        { model: 'text-embedding-3-small', input: text, dimensions: EMBEDDING_DIM },
+        { headers: { Authorization: `Bearer ${config.openaiApiKey}` }, timeout: 15000 }
+      );
+      const embedding = res.data?.data?.[0]?.embedding;
+      if (Array.isArray(embedding) && embedding.length === EMBEDDING_DIM) {
+        return embedding;
+      }
+    }
+  } catch (err) {
+    console.warn('Embedding provider call notice/fallback triggered:', err);
+  }
+
+  return generateEmbedding(text);
 }
