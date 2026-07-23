@@ -3,6 +3,7 @@ import { initDatabase } from './database/schema';
 import { StorageService } from './services/storage.service';
 import { WatchfolderService } from './services/watchfolder.service';
 import { startEmailImportScheduler } from './services/emailImportScheduler.service';
+import { startContractAlertScheduler } from './services/contractAlertScheduler.service';
 import { app } from './app';
 
 async function main() {
@@ -11,6 +12,7 @@ async function main() {
     await initDatabase();
     WatchfolderService.startWatching();
     startEmailImportScheduler();
+    startContractAlertScheduler();
 
     app.listen(config.port, () => {
       console.log(`=======================================================`);
