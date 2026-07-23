@@ -11,6 +11,10 @@ import {
   ShareLinkSummary,
   PublicShareInfo,
   BackupStatus,
+  Citation,
+  AccessGroup,
+  AccessGroupMember,
+  GroupTagPermission,
 } from '../types';
 
 const API_BASE = '/api';
@@ -259,4 +263,59 @@ export function getPublicShareDownloadUrl(token: string, password?: string): str
 export async function fetchBackupStatus(): Promise<BackupStatus> {
   const res = await api.get('/backup/status');
   return res.data;
+}
+
+// Ticket #18 — Interactive RAG Document Assistant ("Chat with your Archive").
+export async function sendChatQuery(
+  question: string,
+  scope?: { tagId?: string; dateFrom?: string; dateTo?: string }
+): Promise<{ answer: string; citations: Citation[] }> {
+  const res = await api.post('/chat/query', { question, scope });
+  return res.data;
+}
+
+// Ticket #19 — Granular Tag & Folder Access Control Lists (ACLs).
+export async function fetchAccessGroups(): Promise<AccessGroup[]> {
+  const res = await api.get('/access-groups');
+  return res.data.groups;
+}
+
+export async function createAccessGroup(name: string): Promise<AccessGroup> {
+  const res = await api.post('/access-groups', { name });
+  return res.data.group;
+}
+
+export async function deleteAccessGroup(groupId: string): Promise<void> {
+  await api.delete(`/access-groups/${groupId}`);
+}
+
+export async function fetchAccessGroupMembers(groupId: string): Promise<AccessGroupMember[]> {
+  const res = await api.get(`/access-groups/${groupId}/members`);
+  return res.data.members;
+}
+
+export async function updateAccessGroupMembers(groupId: string, userIds: string[]): Promise<void> {
+  await api.put(`/access-groups/${groupId}/members`, { userIds });
+}
+
+export async function fetchAccessGroupTagPermissions(groupId: string): Promise<GroupTagPermission[]> {
+  const res = await api.get(`/access-groups/${groupId}/tag-permissions`);
+  return res.data.permissions;
+}
+
+export async function setAccessGroupTagPermission(
+  groupId: string,
+  tagId: string,
+  permissions: { canRead: boolean; canWrite: boolean; canDelete: boolean }
+): Promise<void> {
+  await api.put(`/access-groups/${groupId}/tag-permissions/${tagId}`, permissions);
+}
+
+export async function removeAccessGroupTagPermission(groupId: string, tagId: string): Promise<void> {
+  await api.delete(`/access-groups/${groupId}/tag-permissions/${tagId}`);
+}
+
+export async function fetchAllUsers(): Promise<AccessGroupMember[]> {
+  const res = await api.get('/admin/users');
+  return res.data.users;
 }

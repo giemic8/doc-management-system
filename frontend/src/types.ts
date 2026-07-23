@@ -140,4 +140,46 @@ export interface BackupStatus {
   storageUsageBytes: number;
 }
 
+// Ticket #18 — Interactive RAG Document Assistant ("Chat with your Archive").
+export interface Citation {
+  marker: string; // e.g. "[1]"
+  documentId: string;
+  chunkIndex: number;
+  snippet: string;
+  documentTitle: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  citations?: Citation[];
+}
+
+// Ticket #19 — Granular Tag & Folder Access Control Lists (ACLs).
+export interface AccessGroup {
+  id: string;
+  name: string;
+  created_at: string;
+  member_count: number;
+  granted_tag_count: number;
+}
+
+export interface AccessGroupMember {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+}
+
+export interface GroupTagPermission {
+  tag_id: string;
+  tag_name: string;
+  tag_color: string;
+  can_read: boolean;
+  can_write: boolean;
+  can_delete: boolean;
+}
+
+
 

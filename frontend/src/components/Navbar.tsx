@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Upload, Camera, FileText, Settings, LogOut } from 'lucide-react';
+import { Search, Upload, Camera, FileText, Settings, LogOut, MessageSquare } from 'lucide-react';
 import { User } from '../types';
 import { OfflineQueueIndicator } from './OfflineQueueIndicator';
 
@@ -11,6 +11,7 @@ interface NavbarProps {
   onCameraClick: () => void;
   onSettingsClick: () => void;
   onLogout: () => void;
+  onChatClick?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -21,6 +22,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onCameraClick,
   onSettingsClick,
   onLogout,
+  onChatClick,
 }) => {
   return (
     <header className="h-16 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40 px-6 flex items-center justify-between">
@@ -54,6 +56,18 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Quick Actions */}
       <div className="flex items-center gap-3">
         <OfflineQueueIndicator />
+
+        {/* AI Document Assistant (Ticket #18) */}
+        {onChatClick && (
+          <button
+            onClick={onChatClick}
+            className="btn-secondary text-sm py-2 px-3 hover:border-indigo-500/50 hover:text-indigo-400"
+            title="Dokumenten-Assistent (KI-Chat)"
+          >
+            <MessageSquare className="w-4 h-4 text-indigo-400" />
+            <span className="hidden sm:inline">Assistent</span>
+          </button>
+        )}
 
         {/* Mobile Camera Scan */}
         <button

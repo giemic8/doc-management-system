@@ -1,14 +1,34 @@
 import React, { useState } from 'react';
-import { ZoomIn, ZoomOut, RotateCw, Highlighter, ShieldAlert, Download, QrCode, Loader2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCw, Highlighter, ShieldAlert, Download, QrCode, Loader2, Quote, X } from 'lucide-react';
 import { fetchSepaQr } from '../services/api';
 
 interface PDFViewerProps {
   documentId: string;
   title: string;
   defaultAmount?: number | string;
+  /**
+   * Ticket #18 (RAG chat assistant) — optional citation snippet text to
+   * surface as a floating hint banner when this viewer was opened by
+   * clicking a chat citation.
+   *
+   * LIMITATION: the PDF itself is rendered via a plain
+   * `<iframe src=".../file#toolbar=0">`, i.e. the browser's native/built-in
+   * PDF viewer. That native viewer does not expose any scriptable API to
+   * the parent page for searching, scrolling to, or highlighting specific
+   * text — it's opaque, sandboxed content from the parent document's
+   * point of view. True "jump to and highlight this exact passage"
+   * behavior would require replacing the iframe with a custom PDF.js-based
+   * renderer (e.g. `react-pdf` / `pdfjs-dist`) that renders each page's
+   * text layer as real, scriptable DOM nodes — a larger, separate
+   * architectural change out of scope here. This prop is therefore the
+   * best feasible approximation: it shows the cited snippet text to the
+   * user and nudges them to use the PDF viewer's own Ctrl/Cmd+F search.
+   */
+  highlightHint?: string;
 }
 
-export const PDFViewer: React.FC<PDFViewerProps> = ({ documentId, title, defaultAmount }) => {
+export const PDFViewer: React.FC<PDFViewerProps> = ({ documentId, title, defaultAmount, highlightHint }) => {
+  const [hintDismissed, setHintDismissed] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [rotation, setRotation] = useState(0);
   const [redactMode, setRedactMode] = useState(false);
@@ -113,6 +133,27 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ documentId, title, default
           <div className="absolute top-6 z-10 bg-rose-950/90 border border-rose-500/40 text-rose-200 px-4 py-2 rounded-xl text-xs flex items-center gap-2 backdrop-blur-md shadow-xl">
             <ShieldAlert className="w-4 h-4 text-rose-400" />
             <span>Schwärzungsmodus aktiv: Wähle Bereiche im Dokument aus, um sensible Daten irreversibel zu entfernen.</span>
+          </div>
+        )}
+
+        {highlightHint && !hintDismissed && (
+          <div className="absolute top-6 z-10 max-w-xl bg-indigo-950/90 border border-indigo-500/40 text-indigo-200 px-4 py-2.5 rounded-xl text-xs flex items-start gap-2 backdrop-blur-md shadow-xl">
+            <Quote className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+            <div>
+              <p>
+                Zitierter Ausschnitt: <span className="italic text-indigo-100">"{highlightHint}"</span>
+              </p>
+              <p className="text-indigo-400 mt-1">
+                Nutze Strg+F / Cmd+F im PDF, um die Textstelle zu finden (automatisches Springen/Hervorheben ist im
+                eingebetteten PDF-Viewer technisch nicht möglich).
+              </p>
+            </div>
+            <button
+              onClick={() => setHintDismissed(true)}
+              className="ml-1 text-indigo-400 hover:text-indigo-200 shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 

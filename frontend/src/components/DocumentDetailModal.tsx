@@ -9,12 +9,15 @@ interface DocumentDetailModalProps {
   document: DocumentItem;
   onClose: () => void;
   onUpdate: () => void;
+  /** Ticket #18 — optional citation snippet to surface in the PDF viewer, set when this modal was opened from a chat citation click. */
+  highlightHint?: string;
 }
 
 export const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   document,
   onClose,
   onUpdate,
+  highlightHint,
 }) => {
   const [activeTab, setActiveTab] = useState<'preview' | 'ocr' | 'audit'>('preview');
   const [title, setTitle] = useState(document.title);
@@ -98,7 +101,7 @@ export const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
             <div className="flex-1 overflow-hidden">
               {activeTab === 'preview' ? (
-                <PDFViewer documentId={document.id} title={document.title} defaultAmount={document.amount} />
+                <PDFViewer documentId={document.id} title={document.title} defaultAmount={document.amount} highlightHint={highlightHint} />
               ) : (
                 <div className="h-full bg-slate-950 p-4 rounded-xl border border-slate-800 overflow-auto text-xs font-mono text-slate-300 leading-relaxed whitespace-pre-wrap select-text">
                   {document.ocr_text || 'Kein OCR Text extrahiert.'}
