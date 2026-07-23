@@ -12,6 +12,8 @@ import { dispatchWebhookEvent } from '../services/webhookDispatch.service';
 import { validateCustomFieldValues, CustomFieldDefinition } from '../services/customFieldValidation.service';
 import { encryptFile, decryptFile, createDecryptStream } from '../services/fileEncryption.service';
 import { isRetentionLocked } from '../services/retention.service';
+import { buildSepaEpcPayload } from '../services/sepaQr.service';
+import QRCode from 'qrcode';
 import { config } from '../config';
 
 const router = Router();
@@ -369,6 +371,42 @@ router.get('/:id/file', authenticateToken, async (req: AuthRequest, res: Respons
     }
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/documents/:id/sepa-qr?iban=...&bic=...&amount=... (SEPA EPC-QR for banking apps)
+router.get('/:id/sepa-qr', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const { iban, bic, amount: amountOverride } = req.query;
+
+  try {
+    const docRes = await query(`SELECT sender, amount FROM documents WHERE id = $1;`, [id]);
+    if (docRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    const doc = docRes.rows[0];
+
+    const resolvedIban = (iban as string) || '';
+    if (!resolvedIban) {
+      return res.status(400).json({ error: 'iban is required (not found in extracted metadata, and not provided as a query param)' });
+    }
+
+    const resolvedAmount = amountOverride !== undefined ? parseFloat(amountOverride as string) : Number(doc.amount);
+    if (!resolvedAmount || resolvedAmount <= 0) {
+      return res.status(400).json({ error: 'A positive amount is required (from extracted metadata or the amount query param)' });
+    }
+
+    const payload = buildSepaEpcPayload({
+      receiverName: doc.sender || 'Unknown',
+      iban: resolvedIban,
+      bic: bic as string | undefined,
+      amount: resolvedAmount,
+    });
+
+    const qrCodeDataUrl = await QRCode.toDataURL(payload);
+    return res.json({ qrCodeDataUrl, payload });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
   }
 });
 

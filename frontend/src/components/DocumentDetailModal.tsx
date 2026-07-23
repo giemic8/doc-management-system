@@ -92,7 +92,7 @@ export const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
             <div className="flex-1 overflow-hidden">
               {activeTab === 'preview' ? (
-                <PDFViewer documentId={document.id} title={document.title} />
+                <PDFViewer documentId={document.id} title={document.title} defaultAmount={document.amount} />
               ) : (
                 <div className="h-full bg-slate-950 p-4 rounded-xl border border-slate-800 overflow-auto text-xs font-mono text-slate-300 leading-relaxed whitespace-pre-wrap select-text">
                   {document.ocr_text || 'Kein OCR Text extrahiert.'}

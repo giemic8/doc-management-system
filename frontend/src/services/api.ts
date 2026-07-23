@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResult, MfaConfirmResult, MfaSetupResult, MfaStatus, User } from '../types';
+import { LoginResult, MfaConfirmResult, MfaSetupResult, MfaStatus, SepaQrResult, User } from '../types';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'dms_token';
@@ -144,4 +144,12 @@ export async function fetchWorkflows() {
 export async function hybridSearch(q: string) {
   const res = await api.get('/search', { params: { q } });
   return res.data.results;
+}
+
+export async function fetchSepaQr(
+  documentId: string,
+  params?: { iban?: string; bic?: string; amount?: string | number }
+): Promise<SepaQrResult> {
+  const res = await api.get(`/documents/${documentId}/sepa-qr`, { params });
+  return res.data;
 }

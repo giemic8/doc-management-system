@@ -78,3 +78,8 @@ export interface MfaStatus {
   mfaEnabled: boolean;
   backupCodesRemaining: number;
 }
+
+export interface SepaQrResult {
+  qrCodeDataUrl: string;
+  payload: string;
+}
