@@ -64,7 +64,8 @@ services:
     build:
       context: ./worker
       dockerfile: Dockerfile
-    container_name: dms_worker
+    # No container_name: fixed names collide when scaling to N replicas via
+    # `docker compose up -d --scale worker=4`.
     restart: always
     environment:
       REDIS_HOST: redis
@@ -75,8 +76,18 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-change_this_mfa_encryption_key_in_prod}
+      METRICS_PORT: 9100
     volumes:
       - ./storage:/app/storage
+    # Uncomment to enable NVIDIA GPU acceleration for Tesseract/Ollama
+    # (requires the NVIDIA Container Toolkit installed on the host):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
     depends_on:
       postgres:
         condition: service_healthy
