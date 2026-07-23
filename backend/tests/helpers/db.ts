@@ -27,12 +27,15 @@ export async function resetDatabase() {
       audit_logs,
       document_custom_fields,
       document_tags,
+      document_chunks,
       document_versions,
       documents,
       custom_fields,
       workflows,
       tags,
       org_settings,
+      webhook_deliveries,
+      webhook_endpoints,
       users
     RESTART IDENTITY CASCADE;
   `);

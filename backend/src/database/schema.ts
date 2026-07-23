@@ -42,6 +42,19 @@ export async function initDatabase() {
     );
   `);
 
+  // Document text chunks + embeddings (Ticket #4 — hybrid semantic search)
+  await query(`
+    CREATE TABLE IF NOT EXISTS document_chunks (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      chunk_index INT NOT NULL,
+      chunk_text TEXT NOT NULL,
+      embedding vector(768),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_document_chunks_document_id ON document_chunks(document_id);`);
+
   // Webhook endpoints (Ticket #3)
   await query(`
     CREATE TABLE IF NOT EXISTS webhook_endpoints (

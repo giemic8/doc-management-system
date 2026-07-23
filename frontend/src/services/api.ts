@@ -120,3 +120,8 @@ export async function fetchWorkflows() {
   const res = await api.get('/workflows');
   return res.data.workflows;
 }
+
+export async function hybridSearch(q: string) {
+  const res = await api.get('/search', { params: { q } });
+  return res.data.results;
+}

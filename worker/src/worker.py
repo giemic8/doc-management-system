@@ -3,8 +3,10 @@ import time
 import json
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from pgvector.psycopg2 import register_vector
 from ocr_engine import OCREngine
 from ai_extractor import AIExtractor
+from embedding_generator import EmbeddingGenerator, chunk_text
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://dms_user:dms_secret_password@localhost:5432/dms_db")
 
@@ -12,6 +14,7 @@ def get_db_connection():
     while True:
         try:
             conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+            register_vector(conn)
             return conn
         except Exception as e:
             print(f"Waiting for Postgres connection... ({e})")
@@ -20,6 +23,7 @@ def get_db_connection():
 def process_pending_documents():
     conn = get_db_connection()
     ai_extractor = AIExtractor()
+    embedding_generator = EmbeddingGenerator()
     
     print("Worker loop running, checking for 'pending' or 'processing' documents...")
     
@@ -76,7 +80,19 @@ def process_pending_documents():
                             SELECT %s, id FROM tags WHERE name = %s
                             ON CONFLICT DO NOTHING;
                         """, (doc_id, tag_name))
-                        
+
+                    # 4. Chunk text + generate embeddings for hybrid semantic search (Ticket #4)
+                    try:
+                        cur.execute("DELETE FROM document_chunks WHERE document_id = %s;", (doc_id,))
+                        for idx, chunk in enumerate(chunk_text(ocr_text)):
+                            embedding = embedding_generator.generate(chunk)
+                            cur.execute(
+                                "INSERT INTO document_chunks (document_id, chunk_index, chunk_text, embedding) VALUES (%s, %s, %s, %s);",
+                                (doc_id, idx, chunk, embedding)
+                            )
+                    except Exception as embed_err:
+                        print(f"Embedding generation notice/error for document {doc_id}: {embed_err}")
+
                     conn.commit()
                     print(f"Document {doc_id} successfully processed and indexed!")
                     
