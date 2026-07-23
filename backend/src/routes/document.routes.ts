@@ -2,10 +2,13 @@ import { Router, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import { query } from '../database/db';
 import { StorageService } from '../services/storage.service';
 import { addDocumentProcessingJob } from '../services/queue.service';
+import { splitPdfPages, mergePdfs } from '../services/pdfTools.service';
+import { dispatchWebhookEvent } from '../services/webhookDispatch.service';
 
 const router = Router();
 const upload = multer({ dest: path.join(__dirname, '../../../storage/tmp') });
@@ -48,6 +51,106 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 
     const result = await query(queryText, params);
     return res.json({ documents: result.rows });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/documents/:id/split
+router.post('/:id/split', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const { splitAtPage } = req.body;
+
+  try {
+    const docRes = await query(`SELECT * FROM documents WHERE id = $1;`, [id]);
+    if (docRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    const doc = docRes.rows[0];
+
+    const source = fs.readFileSync(doc.file_path);
+    let firstBytes: Buffer, secondBytes: Buffer;
+    try {
+      [firstBytes, secondBytes] = await splitPdfPages(source, Number(splitAtPage));
+    } catch (splitErr: any) {
+      return res.status(400).json({ error: splitErr.message });
+    }
+
+    const parts = [
+      { bytes: firstBytes, suffix: 'part1' },
+      { bytes: secondBytes, suffix: 'part2' },
+    ];
+
+    const createdDocs = [];
+    for (const part of parts) {
+      const partTitle = `${doc.title.replace(/\.pdf$/i, '')}_${part.suffix}.pdf`;
+      const partPath = StorageService.getOriginalFilePath(`${Date.now()}_${part.suffix}.pdf`);
+      fs.writeFileSync(partPath, part.bytes);
+      const partHash = crypto.createHash('sha256').update(part.bytes).digest('hex');
+
+      const insertRes = await query(
+        `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by, doc_type, sender, recipient)
+         VALUES ($1, $1, $2, $3, 'application/pdf', $4, 'processed', $5, $6, $7, $8)
+         RETURNING *;`,
+        [partTitle, partPath, part.bytes.length, partHash, req.user?.id, doc.doc_type, doc.sender, doc.recipient]
+      );
+      createdDocs.push(insertRes.rows[0]);
+    }
+
+    // Preserve the original file's hash in the audit log for both new records.
+    for (const createdDoc of createdDocs) {
+      await query(
+        `INSERT INTO audit_logs (document_id, user_id, action, details) VALUES ($1, $2, 'split', $3);`,
+        [
+          createdDoc.id,
+          req.user?.id,
+          JSON.stringify({ source_document_id: doc.id, original_file_hash: doc.file_hash, split_at_page: splitAtPage }),
+        ]
+      );
+    }
+
+    return res.json({ documents: createdDocs });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/documents/merge (must be registered before /:id routes)
+router.post('/merge', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const { documentIds } = req.body;
+  if (!Array.isArray(documentIds) || documentIds.length < 2) {
+    return res.status(400).json({ error: 'documentIds must be an array of at least two document ids' });
+  }
+
+  try {
+    const docsRes = await query(`SELECT * FROM documents WHERE id = ANY($1::uuid[]) ORDER BY array_position($1::uuid[], id);`, [documentIds]);
+    if (docsRes.rows.length !== documentIds.length) {
+      return res.status(404).json({ error: 'One or more documents not found' });
+    }
+    const docs = docsRes.rows;
+
+    const buffers = docs.map((d: any) => fs.readFileSync(d.file_path));
+    const mergedBytes = await mergePdfs(buffers);
+    const mergedHash = crypto.createHash('sha256').update(mergedBytes).digest('hex');
+
+    const mergedTitle = `Merged_${Date.now()}.pdf`;
+    const mergedPath = StorageService.getOriginalFilePath(mergedTitle);
+    fs.writeFileSync(mergedPath, mergedBytes);
+
+    const insertRes = await query(
+      `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by)
+       VALUES ($1, $1, $2, $3, 'application/pdf', $4, 'processed', $5)
+       RETURNING *;`,
+      [mergedTitle, mergedPath, mergedBytes.length, mergedHash, req.user?.id]
+    );
+    const mergedDoc = insertRes.rows[0];
+
+    await query(
+      `INSERT INTO audit_logs (document_id, user_id, action, details) VALUES ($1, $2, 'merge', $3);`,
+      [mergedDoc.id, req.user?.id, JSON.stringify({ source_document_ids: documentIds, source_file_hashes: docs.map((d: any) => d.file_hash) })]
+    );
+
+    return res.json({ document: mergedDoc });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -132,6 +235,11 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req: Aut
 
     // Queue for OCR & AI
     await addDocumentProcessingJob(doc.id, targetPath);
+
+    // Fire-and-forget: webhook delivery failures must never fail the upload response.
+    dispatchWebhookEvent('document.created', { id: doc.id, title: doc.title, status: doc.status }).catch((err) =>
+      console.error('Webhook dispatch failed for document.created:', err)
+    );
 
     return res.status(201).json({ document: doc });
   } catch (err: any) {
