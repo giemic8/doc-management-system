@@ -40,6 +40,7 @@ export interface User {
 export interface AuditLog {
   id: string;
   document_id?: string;
+  document_title?: string;
   user_name?: string;
   user_email?: string;
   action: string;
