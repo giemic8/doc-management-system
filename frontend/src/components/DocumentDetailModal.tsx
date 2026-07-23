@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, FileText, Calendar, Building, DollarSign, Tag, History, Shield, Cpu, RefreshCw } from 'lucide-react';
+import { X, Save, FileText, Calendar, Building, DollarSign, Tag, History, Shield, Cpu, RefreshCw, Link2 } from 'lucide-react';
 import { DocumentItem, Tag as TagType } from '../types';
 import { PDFViewer } from './PDFViewer';
 import { updateDocumentMetadata, fetchTags } from '../services/api';
+import { ShareLinkModal } from './ShareLinkModal';
 
 interface DocumentDetailModalProps {
   document: DocumentItem;
@@ -23,6 +24,7 @@ export const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   const [docDate, setDocDate] = useState(document.document_date || '');
   const [summary, setSummary] = useState(document.summary || '');
   const [saving, setSaving] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
 
   const handleSave = async () => {
     setSaving(true);
@@ -57,6 +59,10 @@ export const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
+            <button onClick={() => setShareModalOpen(true)} className="btn-secondary text-xs py-2 px-4">
+              <Link2 className="w-4 h-4" />
+              <span>Freigabe-Link</span>
+            </button>
             <button onClick={handleSave} disabled={saving} className="btn-primary text-xs py-2 px-4">
               <Save className="w-4 h-4" />
               <span>{saving ? 'Speichere...' : 'Metadaten Speichern'}</span>
@@ -205,6 +211,7 @@ export const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
           </div>
         </div>
       </div>
+      {shareModalOpen && <ShareLinkModal document={document} onClose={() => setShareModalOpen(false)} />}
     </div>
   );
 };
