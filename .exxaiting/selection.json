@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "selected_resources": [
+    "official::gh@affaan-m/everything-claude-code:rules/python/security.md",
+    "official::gh@affaan-m/everything-claude-code:rules/typescript/security.md",
+    "official::gh@anthropics/skills:skills/mcp-builder",
+    "official::gh@muratcankoylan/agent-skills-for-context-engineering:package",
+    "official::gh@upstash/context7:plugins/claude/context7/skills/documentation-lookup",
+    "official::gh@vercel/ai:package",
+    "official::gh@wshobson/agents:plugins/llm-application-dev/agents/ai-engineer.md",
+    "official::gh@wshobson/agents:plugins/llm-application-dev/agents/prompt-engineer.md",
+    "official::gh@wshobson/agents:plugins/llm-application-dev/agents/vector-database-engineer.md",
+    "official::gh@wshobson/agents:plugins/llm-application-dev/commands/prompt-optimize.md",
+    "official::gh@wshobson/agents:plugins/llm-application-dev/skills/hybrid-search-implementation",
+    "official::gh@wshobson/agents:plugins/llm-application-dev/skills/langchain-architecture",
+    "official::gh@wshobson/agents:plugins/llm-application-dev/skills/prompt-engineering-patterns",
+    "official::gh@wshobson/agents:plugins/llm-application-dev/skills/rag-implementation",
+    "official::gh@wshobson/agents:plugins/llm-application-dev/skills/similarity-search-patterns"
+  ],
+  "target_platforms": [
+    "claude",
+    "codex",
+    "github",
+    "opencode"
+  ]
+}

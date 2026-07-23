@@ -29,3 +29,16 @@ storage/input/*
 *.log
 .vscode/
 .idea/
+.envrc
+.claude/
+.codex/
+.github/agents/*.agent.md
+.github/copilot-instructions.md
+.github/copilot/plans/*.md
+.github/git-commit-instructions.md
+.github/instructions/*.instructions.md
+.github/prompts/*.prompt.md
+.github/skills/*.md
+.opencode/
+/.mcp.json
+/opencode.json
