@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+env/
+
+# Build outputs
+dist/
+build/
+.vite/
+
+# Environment files
+.env
+.env.local
+
+# Storage (keep folder structure with gitkeep)
+storage/originals/*
+!storage/originals/.gitkeep
+storage/derived/*
+!storage/derived/.gitkeep
+storage/thumbnails/*
+!storage/thumbnails/.gitkeep
+storage/input/*
+!storage/input/.gitkeep
+
+# System & IDE
+.DS_Store
+*.log
+.vscode/
+.idea/
