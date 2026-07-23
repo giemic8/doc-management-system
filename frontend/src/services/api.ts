@@ -92,13 +92,33 @@ export async function fetchDocumentDetail(id: string) {
   return res.data;
 }
 
-export async function uploadDocument(file: File) {
+export async function uploadDocument(file: File, onProgress?: (percent: number) => void) {
   const formData = new FormData();
   formData.append('file', file);
   const res = await api.post('/documents/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: (event) => {
+      if (onProgress && event.total) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    },
   });
   return res.data.document;
+}
+
+export async function bulkAddTag(documentIds: string[], tagId: string) {
+  const res = await api.post('/documents/bulk/tag', { documentIds, tagId });
+  return res.data;
+}
+
+export async function bulkSetDocType(documentIds: string[], docType: string) {
+  const res = await api.post('/documents/bulk/doc-type', { documentIds, docType });
+  return res.data;
+}
+
+export async function bulkDeleteDocuments(documentIds: string[]) {
+  const res = await api.post('/documents/bulk/delete', { documentIds });
+  return res.data;
 }
 
 export async function updateDocumentMetadata(id: string, metadata: any) {

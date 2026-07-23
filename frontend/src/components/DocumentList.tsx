@@ -1,13 +1,22 @@
 import React from 'react';
-import { FileText, Calendar, Building, DollarSign, Tag, CheckCircle2, Clock, AlertCircle, Eye } from 'lucide-react';
+import { FileText, Calendar, Building, DollarSign, Tag, CheckCircle2, Clock, AlertCircle, Eye, CheckSquare, Square } from 'lucide-react';
 import { DocumentItem } from '../types';
 
 interface DocumentListProps {
   documents: DocumentItem[];
   onSelectDocument: (doc: DocumentItem) => void;
+  bulkMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
 }
 
-export const DocumentList: React.FC<DocumentListProps> = ({ documents, onSelectDocument }) => {
+export const DocumentList: React.FC<DocumentListProps> = ({
+  documents,
+  onSelectDocument,
+  bulkMode = false,
+  selectedIds,
+  onToggleSelect,
+}) => {
   if (documents.length === 0) {
     return (
       <div className="glass-panel p-12 text-center space-y-4 my-6">
@@ -24,13 +33,21 @@ export const DocumentList: React.FC<DocumentListProps> = ({ documents, onSelectD
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {documents.map((doc) => {
         const isProcessed = doc.status === 'processed';
+        const isSelected = selectedIds?.has(doc.id) ?? false;
 
         return (
           <div
             key={doc.id}
-            onClick={() => onSelectDocument(doc)}
-            className="glass-card p-5 cursor-pointer flex flex-col justify-between group"
+            onClick={() => (bulkMode ? onToggleSelect?.(doc.id) : onSelectDocument(doc))}
+            className={`glass-card p-5 cursor-pointer flex flex-col justify-between group relative ${
+              isSelected ? 'ring-2 ring-indigo-500' : ''
+            }`}
           >
+            {bulkMode && (
+              <div className="absolute top-3 right-3 z-10 text-indigo-400">
+                {isSelected ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5 text-slate-500" />}
+              </div>
+            )}
             <div className="space-y-3">
               {/* Header: Title & Status */}
               <div className="flex items-start justify-between gap-2">

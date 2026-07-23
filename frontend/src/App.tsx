@@ -8,9 +8,10 @@ import { WorkflowEditor } from './components/WorkflowEditor';
 import { AuditLogView } from './components/AuditLogView';
 import { SettingsPage } from './components/SettingsPage';
 import { AuthGate } from './components/AuthGate';
+import { BatchUploadQueue } from './components/BatchUploadQueue';
 import { DocumentItem, User } from './types';
-import { fetchDocuments, uploadDocument } from './services/api';
-import { FolderSync } from 'lucide-react';
+import { fetchDocuments, uploadDocument, bulkAddTag, bulkSetDocType, bulkDeleteDocuments, fetchTags } from './services/api';
+import { FolderSync, ListChecks, X, Tag as TagIcon, Trash2, FolderInput } from 'lucide-react';
 
 const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogout }) => {
   const [currentTab, setCurrentTab] = useState('documents');
@@ -19,6 +20,8 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const loadDocs = async () => {
     try {
@@ -89,6 +92,42 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
     }
   };
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkAddTag = async () => {
+    const tags = await fetchTags().catch(() => []);
+    if (tags.length === 0) return;
+    const tagId = window.prompt(
+      `Tag hinzufügen zu ${selectedIds.size} Dokumenten. Verfügbare Tags:\n${tags.map((t: any) => `${t.name} (${t.id})`).join('\n')}\n\nTag-ID eingeben:`
+    );
+    if (!tagId) return;
+    await bulkAddTag(Array.from(selectedIds), tagId);
+    setSelectedIds(new Set());
+    loadDocs();
+  };
+
+  const handleBulkSetDocType = async () => {
+    const docType = window.prompt(`Dokumenttyp setzen für ${selectedIds.size} Dokumente:`);
+    if (!docType) return;
+    await bulkSetDocType(Array.from(selectedIds), docType);
+    setSelectedIds(new Set());
+    loadDocs();
+  };
+
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`${selectedIds.size} Dokumente wirklich löschen?`)) return;
+    await bulkDeleteDocuments(Array.from(selectedIds));
+    setSelectedIds(new Set());
+    loadDocs();
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
       <Navbar
@@ -125,10 +164,46 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
                   <span className="text-xs text-slate-400 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl font-medium">
                     {documents.length} Dokumente indiziert
                   </span>
+                  <button
+                    onClick={() => {
+                      setBulkMode((v) => !v);
+                      setSelectedIds(new Set());
+                    }}
+                    className={`btn-secondary text-xs py-2 px-3 ${bulkMode ? 'border-indigo-500 text-indigo-300' : ''}`}
+                  >
+                    <ListChecks className="w-3.5 h-3.5" />
+                    {bulkMode ? 'Auswahl beenden' : 'Mehrfachauswahl'}
+                  </button>
                 </div>
               </div>
 
-              <DocumentList documents={documents} onSelectDocument={setSelectedDoc} />
+              {bulkMode && selectedIds.size > 0 && (
+                <div className="glass-panel p-3 flex items-center justify-between">
+                  <span className="text-xs text-slate-300 font-medium">{selectedIds.size} ausgewählt</span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={handleBulkAddTag} className="btn-secondary text-xs py-1.5 px-3">
+                      <TagIcon className="w-3.5 h-3.5" /> Tag hinzufügen
+                    </button>
+                    <button onClick={handleBulkSetDocType} className="btn-secondary text-xs py-1.5 px-3">
+                      <FolderInput className="w-3.5 h-3.5" /> Typ ändern
+                    </button>
+                    <button onClick={handleBulkDelete} className="btn-secondary text-xs py-1.5 px-3 hover:border-red-500/50 hover:text-red-400">
+                      <Trash2 className="w-3.5 h-3.5" /> Löschen
+                    </button>
+                    <button onClick={() => setSelectedIds(new Set())} className="text-slate-500 hover:text-slate-300">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <DocumentList
+                documents={documents}
+                onSelectDocument={setSelectedDoc}
+                bulkMode={bulkMode}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+              />
             </div>
           )}
 
@@ -170,6 +245,8 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
           onUploadSuccess={loadDocs}
         />
       )}
+
+      <BatchUploadQueue onAllComplete={loadDocs} />
     </div>
   );
 };

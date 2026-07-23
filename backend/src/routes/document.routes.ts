@@ -159,6 +159,66 @@ router.post('/merge', authenticateToken, async (req: AuthRequest, res: Response)
   }
 });
 
+// POST /api/documents/bulk/tag (must be registered before /:id routes)
+router.post('/bulk/tag', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const { documentIds, tagId } = req.body;
+  if (!Array.isArray(documentIds) || documentIds.length === 0 || !tagId) {
+    return res.status(400).json({ error: 'documentIds (non-empty array) and tagId are required' });
+  }
+
+  try {
+    let updated = 0;
+    for (const docId of documentIds) {
+      const result = await query(
+        `INSERT INTO document_tags (document_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING document_id;`,
+        [docId, tagId]
+      );
+      if (result.rows.length > 0) updated++;
+    }
+    return res.json({ updated });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/documents/bulk/doc-type
+router.post('/bulk/doc-type', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const { documentIds, docType } = req.body;
+  if (!Array.isArray(documentIds) || documentIds.length === 0 || !docType) {
+    return res.status(400).json({ error: 'documentIds (non-empty array) and docType are required' });
+  }
+
+  try {
+    const result = await query(
+      `UPDATE documents SET doc_type = $1, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($2::uuid[]) RETURNING id;`,
+      [docType, documentIds]
+    );
+    return res.json({ updated: result.rows.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/documents/bulk/delete
+router.post('/bulk/delete', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const { documentIds } = req.body;
+  if (!Array.isArray(documentIds) || documentIds.length === 0) {
+    return res.status(400).json({ error: 'documentIds (non-empty array) is required' });
+  }
+
+  try {
+    await query(
+      `INSERT INTO audit_logs (document_id, user_id, action, details)
+       SELECT id, $2, 'bulk_delete', jsonb_build_object('title', title) FROM documents WHERE id = ANY($1::uuid[]);`,
+      [documentIds, req.user?.id]
+    );
+    const result = await query(`DELETE FROM documents WHERE id = ANY($1::uuid[]) RETURNING id;`, [documentIds]);
+    return res.json({ deleted: result.rows.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/documents/:id (Detail view)
 router.get('/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
