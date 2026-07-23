@@ -8,6 +8,7 @@ import tagRoutes from './routes/tag.routes';
 import workflowRoutes from './routes/workflow.routes';
 import auditRoutes from './routes/audit.routes';
 import adminRoutes from './routes/admin.routes';
+import webhookRoutes from './routes/webhook.routes';
 
 export const app = express();
 
@@ -22,6 +23,7 @@ app.use('/api/tags', tagRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/audit-logs', auditRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

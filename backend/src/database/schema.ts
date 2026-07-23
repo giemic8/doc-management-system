@@ -42,6 +42,34 @@ export async function initDatabase() {
     );
   `);
 
+  // Webhook endpoints (Ticket #3)
+  await query(`
+    CREATE TABLE IF NOT EXISTS webhook_endpoints (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      url VARCHAR(2000) NOT NULL,
+      secret VARCHAR(255) NOT NULL,
+      events JSONB NOT NULL DEFAULT '[]',
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      webhook_endpoint_id UUID NOT NULL REFERENCES webhook_endpoints(id) ON DELETE CASCADE,
+      event VARCHAR(100) NOT NULL,
+      payload JSONB NOT NULL,
+      success BOOLEAN NOT NULL,
+      attempts INT NOT NULL,
+      last_status INT,
+      last_error TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Documents table
   await query(`
     CREATE TABLE IF NOT EXISTS documents (
