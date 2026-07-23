@@ -10,6 +10,7 @@ import auditRoutes from './routes/audit.routes';
 import adminRoutes from './routes/admin.routes';
 import webhookRoutes from './routes/webhook.routes';
 import searchRoutes from './routes/search.routes';
+import customFieldRoutes from './routes/customField.routes';
 
 export const app = express();
 
@@ -26,6 +27,7 @@ app.use('/api/audit-logs', auditRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/custom-fields', customFieldRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

@@ -9,6 +9,7 @@ import { StorageService } from '../services/storage.service';
 import { addDocumentProcessingJob } from '../services/queue.service';
 import { splitPdfPages, mergePdfs } from '../services/pdfTools.service';
 import { dispatchWebhookEvent } from '../services/webhookDispatch.service';
+import { validateCustomFieldValues, CustomFieldDefinition } from '../services/customFieldValidation.service';
 
 const router = Router();
 const upload = multer({ dest: path.join(__dirname, '../../../storage/tmp') });
@@ -312,6 +313,61 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
     );
 
     return res.json({ document: docRes.rows[0] });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/documents/:id/custom-fields (validate against the doc_type's schema, then save)
+router.put('/:id/custom-fields', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const { values } = req.body;
+
+  if (!values || typeof values !== 'object') {
+    return res.status(400).json({ error: 'values object is required' });
+  }
+
+  try {
+    const docRes = await query(`SELECT * FROM documents WHERE id = $1;`, [id]);
+    if (docRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    const doc = docRes.rows[0];
+
+    const schemaRes = await query(`SELECT * FROM custom_fields WHERE doc_type = $1;`, [doc.doc_type]);
+    const schema: CustomFieldDefinition[] = schemaRes.rows.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      field_type: r.field_type,
+      required: r.required,
+      options: r.options,
+    }));
+
+    const validation = validateCustomFieldValues(schema, values);
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Validation failed', errors: validation.errors });
+    }
+
+    for (const field of schema) {
+      const value = values[field.id];
+      if (value === undefined) continue;
+
+      const columns: Record<string, any> = { value_text: null, value_number: null, value_date: null, value_boolean: null };
+      if (field.field_type === 'number') columns.value_number = value;
+      else if (field.field_type === 'date') columns.value_date = value;
+      else if (field.field_type === 'boolean') columns.value_boolean = value;
+      else columns.value_text = String(value);
+
+      await query(
+        `INSERT INTO document_custom_fields (document_id, custom_field_id, value_text, value_number, value_date, value_boolean)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (document_id, custom_field_id)
+         DO UPDATE SET value_text = $3, value_number = $4, value_date = $5, value_boolean = $6;`,
+        [id, field.id, columns.value_text, columns.value_number, columns.value_date, columns.value_boolean]
+      );
+    }
+
+    return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

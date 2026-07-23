@@ -156,11 +156,15 @@ export async function initDatabase() {
     CREATE TABLE IF NOT EXISTS custom_fields (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       name VARCHAR(100) NOT NULL,
-      field_type VARCHAR(50) NOT NULL, -- string, number, date, boolean
+      field_type VARCHAR(50) NOT NULL, -- string, number, date, boolean, dropdown
       options JSONB,
+      doc_type VARCHAR(100),
+      required BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  await query(`ALTER TABLE custom_fields ADD COLUMN IF NOT EXISTS doc_type VARCHAR(100);`);
+  await query(`ALTER TABLE custom_fields ADD COLUMN IF NOT EXISTS required BOOLEAN NOT NULL DEFAULT false;`);
 
   // Document Custom Field Values
   await query(`
