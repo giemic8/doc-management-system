@@ -83,3 +83,61 @@ export interface SepaQrResult {
   qrCodeDataUrl: string;
   payload: string;
 }
+
+export interface MonthlyBreakdownEntry {
+  month: string;
+  total: number;
+  count: number;
+}
+
+export interface VendorEntry {
+  sender: string;
+  total: number;
+  count: number;
+}
+
+export interface RecurringSubscription {
+  sender: string;
+  cadence: 'monthly' | 'yearly';
+  averageAmount: number;
+  occurrences: number;
+}
+
+export interface AnalyticsSummary {
+  monthlyBreakdown: MonthlyBreakdownEntry[];
+  topVendors: VendorEntry[];
+  recurringSubscriptions: RecurringSubscription[];
+}
+
+export interface ShareLinkSummary {
+  id: string;
+  expires_at: string | null;
+  max_downloads: number | null;
+  download_count: number;
+  created_at: string;
+}
+
+export interface ShareLinkCreateResult {
+  shareUrl: string;
+  token: string;
+  expiresAt: string | null;
+  maxDownloads: number | null;
+}
+
+export interface PublicShareInfo {
+  documentTitle?: string;
+  requiresPassword?: boolean;
+  valid: boolean;
+  reason?: 'expired' | 'revoked' | 'limit_exceeded' | 'locked';
+}
+
+export interface BackupStatus {
+  timestamp: string | null;
+  dbBackupSizeBytes: number;
+  storageBackupSizeBytes: number;
+  success: boolean;
+  error?: string;
+  storageUsageBytes: number;
+}
+
+

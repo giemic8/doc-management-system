@@ -1,5 +1,17 @@
 import axios from 'axios';
-import { LoginResult, MfaConfirmResult, MfaSetupResult, MfaStatus, SepaQrResult, User } from '../types';
+import {
+  AnalyticsSummary,
+  LoginResult,
+  MfaConfirmResult,
+  MfaSetupResult,
+  MfaStatus,
+  SepaQrResult,
+  User,
+  ShareLinkCreateResult,
+  ShareLinkSummary,
+  PublicShareInfo,
+  BackupStatus,
+} from '../types';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'dms_token';
@@ -151,5 +163,100 @@ export async function fetchSepaQr(
   params?: { iban?: string; bic?: string; amount?: string | number }
 ): Promise<SepaQrResult> {
   const res = await api.get(`/documents/${documentId}/sepa-qr`, { params });
+  return res.data;
+}
+
+export async function fetchAnalyticsSummary(params?: {
+  start_date?: string;
+  end_date?: string;
+  tagId?: string;
+  currency?: string;
+}): Promise<AnalyticsSummary> {
+  const res = await api.get('/analytics/summary', { params });
+  return res.data;
+}
+
+export async function fetchContracts(params?: { status?: string }) {
+  const res = await api.get('/contracts', { params });
+  return res.data.contracts;
+}
+
+export async function updateContractDetails(
+  documentId: string,
+  details: {
+    customer_number?: string;
+    vendor_address?: string;
+    notice_period_days?: number;
+    contract_end_date?: string;
+  }
+) {
+  const res = await api.put(`/contracts/${documentId}/details`, details);
+  return res.data.contract_details;
+}
+
+/** Triggers a browser download of the generated cancellation letter PDF. */
+export async function downloadCancellationLetter(documentId: string) {
+  const token = getStoredToken();
+  const res = await fetch(`${API_BASE}/contracts/${documentId}/cancellation-letter`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to generate cancellation letter (${res.status})`);
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'kuendigung.pdf';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+export async function createShareLink(
+  documentId: string,
+  options: { password?: string; expiresInDays?: number; maxDownloads?: number }
+): Promise<ShareLinkCreateResult> {
+  const res = await api.post(`/documents/${documentId}/share-links`, options);
+  return res.data;
+}
+
+export async function fetchShareLinks(documentId: string): Promise<ShareLinkSummary[]> {
+  const res = await api.get(`/documents/${documentId}/share-links`);
+  return res.data.shareLinks;
+}
+
+export async function revokeShareLink(documentId: string, linkId: string): Promise<void> {
+  await api.delete(`/documents/${documentId}/share-links/${linkId}`);
+}
+
+// Public (unauthenticated) guest share routes — deliberately use plain
+// fetch rather than the `api` axios instance, since guests have no JWT and
+// the `api` instance's interceptor is only relevant for logged-in users.
+export async function fetchPublicShareInfo(token: string): Promise<PublicShareInfo> {
+  const res = await fetch(`${API_BASE}/share/${token}/info`);
+  return res.json();
+}
+
+export async function verifyPublicSharePassword(
+  token: string,
+  password?: string
+): Promise<{ valid: boolean; reason?: string }> {
+  const res = await fetch(`${API_BASE}/share/${token}/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  return res.json();
+}
+
+export function getPublicShareDownloadUrl(token: string, password?: string): string {
+  const params = password ? `?password=${encodeURIComponent(password)}` : '';
+  return `${API_BASE}/share/${token}/download${params}`;
+}
+
+// Ticket #17 — Offsite Backup & Automated Disaster Recovery admin dashboard.
+export async function fetchBackupStatus(): Promise<BackupStatus> {
+  const res = await api.get('/backup/status');
   return res.data;
 }
