@@ -54,6 +54,7 @@ services:
       STORAGE_PATH: /app/storage
     volumes:
       - ./storage:/app/storage
+      - backup_status:/app/backup-status:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,7 +115,42 @@ services:
     volumes:
       - ollama_data:/root/.ollama
 
+  # Ticket #17 — Offsite Backup & Automated Disaster Recovery.
+  # Standalone container (like `worker`) since pg_dump/gpg/rclone are
+  # external CLI tools, not npm packages. Runs a daily sleep-loop (see
+  # backup/entrypoint.sh) that dumps the DB + document storage, encrypts
+  # both with GPG AES-256, and syncs them offsite via rclone. Writes
+  # last-backup-status.json into the shared `backup_status` volume, which
+  # the `backend` service mounts read-only so GET /api/backup/status can
+  # report backup health on the admin dashboard.
+  backup:
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    container_name: dms_backup
+    restart: always
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-dms_user}:${POSTGRES_PASSWORD:-dms_secret_password}@postgres:5432/${POSTGRES_DB:-dms_db}
+      STORAGE_PATH: /app/storage
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-change_this_backup_encryption_key_in_prod}
+      # Leave RCLONE_REMOTE empty to run backups locally without an offsite
+      # upload (e.g. local dev) — see backup/scripts/run-backup.sh.
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-}
+    volumes:
+      - ./storage:/app/storage:ro
+      - backup_status:/backups
+      # Real credentials live in an operator-provided, gitignored
+      # backup/rclone.conf (see backup/rclone.conf.example for the format).
+      # This mount is commented out by default so `docker compose up` still
+      # works out of the box without that file existing; uncomment once
+      # you've created backup/rclone.conf with real offsite credentials.
+      # - ./backup/rclone.conf:/config/rclone/rclone.conf:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
   ollama_data:
+  backup_status:

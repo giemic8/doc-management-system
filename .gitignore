@@ -14,6 +14,9 @@ build/
 .env
 .env.local
 
+# Backup service: real rclone credentials (see backup/rclone.conf.example)
+backup/rclone.conf
+
 # Storage (keep folder structure with gitkeep)
 storage/originals/*
 !storage/originals/.gitkeep

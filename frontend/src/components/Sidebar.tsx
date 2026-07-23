@@ -1,17 +1,24 @@
 import React from 'react';
-import { Files, FolderSync, GitMerge, ShieldCheck, Tag, Settings, LayoutDashboard } from 'lucide-react';
+import { Files, FolderSync, GitMerge, ShieldCheck, Tag, Settings, LayoutDashboard, BarChart3, FileClock, HardDriveDownload } from 'lucide-react';
 
 interface SidebarProps {
   currentTab: string;
   onTabChange: (tab: string) => void;
+  userRole?: string;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, userRole }) => {
   const navItems = [
     { id: 'documents', label: 'Alle Dokumente', icon: Files },
     { id: 'watchfolder', label: 'Inbound Scan Folder', icon: FolderSync },
     { id: 'workflows', label: 'Workflows & Regeln', icon: GitMerge },
     { id: 'audit', label: 'Audit Log & Revisions', icon: ShieldCheck },
+    { id: 'analytics', label: 'Kostenanalyse', icon: BarChart3 },
+    { id: 'contracts', label: 'Verträge', icon: FileClock },
+    // Admin-only: backup health is sensitive infra data (Ticket #17), so we
+    // hide the nav item entirely for non-admins rather than relying solely
+    // on the backend's 403 fallback.
+    ...(userRole === 'admin' ? [{ id: 'backup', label: 'Backup & Recovery', icon: HardDriveDownload }] : []),
     { id: 'settings', label: 'Profil & Sicherheit', icon: Settings },
   ];
 

@@ -6,7 +6,10 @@ import { DocumentDetailModal } from './components/DocumentDetailModal';
 import { MobileScanner } from './components/MobileScanner';
 import { WorkflowEditor } from './components/WorkflowEditor';
 import { AuditLogView } from './components/AuditLogView';
+import { AnalyticsDashboard } from './components/AnalyticsDashboard';
+import { ContractDashboard } from './components/ContractDashboard';
 import { SettingsPage } from './components/SettingsPage';
+import { BackupStatusPage } from './components/BackupStatusPage';
 import { AuthGate } from './components/AuthGate';
 import { BatchUploadQueue } from './components/BatchUploadQueue';
 import { DocumentItem, User } from './types';
@@ -149,7 +152,7 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
       />
 
       <div className="flex-1 flex overflow-hidden">
-        <Sidebar currentTab={currentTab} onTabChange={setCurrentTab} />
+        <Sidebar currentTab={currentTab} onTabChange={setCurrentTab} userRole={user.role} />
 
         <main className="flex-1 p-6 overflow-auto">
           {currentTab === 'documents' && (
@@ -226,6 +229,9 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
 
           {currentTab === 'workflows' && <WorkflowEditor />}
           {currentTab === 'audit' && <AuditLogView />}
+          {currentTab === 'analytics' && <AnalyticsDashboard />}
+          {currentTab === 'contracts' && <ContractDashboard />}
+          {currentTab === 'backup' && <BackupStatusPage />}
           {currentTab === 'settings' && <SettingsPage user={user} />}
         </main>
       </div>

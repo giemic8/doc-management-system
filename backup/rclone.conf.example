@@ -1,0 +1,55 @@
+# backup/rclone.conf.example
+#
+# Template for the rclone remote configuration used by the `backup` service
+# (Ticket #17 — Offsite Backup & Automated Disaster Recovery).
+#
+# rclone is provider-agnostic: the SAME backup scripts (run-backup.sh,
+# verify-restore.sh) work unchanged against AWS S3, Wasabi, Hetzner Storage
+# Box (SFTP), MinIO, Backblaze B2, etc. — only this config file (or
+# equivalent RCLONE_CONFIG_* env vars, see rclone's docs) differs per provider.
+#
+# HOW TO USE:
+#   1. Copy this file to `backup/rclone.conf` (gitignored — never commit real
+#      credentials).
+#   2. Fill in ONE of the example sections below for your chosen provider and
+#      delete the others.
+#   3. docker-compose.yml mounts ./backup/rclone.conf read-only into the
+#      backup container at /config/rclone/rclone.conf.
+#   4. Set RCLONE_REMOTE in your .env to "<remote-name>:<bucket-or-path>/",
+#      matching the [<remote-name>] section header you configured below.
+#
+# Equivalently, credentials can be supplied via RCLONE_CONFIG_<REMOTE>_<KEY>
+# environment variables instead of this file — see:
+# https://rclone.org/docs/#config-file
+
+# --- Example: AWS S3 -------------------------------------------------------
+# [myS3remote]
+# type = s3
+# provider = AWS
+# access_key_id = YOUR_AWS_ACCESS_KEY_ID
+# secret_access_key = YOUR_AWS_SECRET_ACCESS_KEY
+# region = eu-central-1
+
+# --- Example: Wasabi (S3-compatible) --------------------------------------
+# [myWasabiRemote]
+# type = s3
+# provider = Wasabi
+# access_key_id = YOUR_WASABI_ACCESS_KEY
+# secret_access_key = YOUR_WASABI_SECRET_KEY
+# endpoint = s3.eu-central-1.wasabisys.com
+
+# --- Example: Hetzner Storage Box (SFTP) -----------------------------------
+# [myHetznerBox]
+# type = sftp
+# host = u123456.your-storagebox.de
+# user = u123456
+# pass = <rclone obscured password — generate with `rclone obscure <password>`>
+# port = 23
+
+# --- Example: MinIO / any self-hosted S3-compatible endpoint --------------
+# [myMinioRemote]
+# type = s3
+# provider = Minio
+# access_key_id = YOUR_MINIO_ACCESS_KEY
+# secret_access_key = YOUR_MINIO_SECRET_KEY
+# endpoint = https://minio.example.com:9000

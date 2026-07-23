@@ -236,6 +236,20 @@ export async function initDatabase() {
     );
   `);
 
+  // Contract details (Ticket #15 — contract expiration watcher & cancellation letters)
+  await query(`
+    CREATE TABLE IF NOT EXISTS contract_details (
+      document_id UUID PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+      customer_number VARCHAR(100),
+      vendor_address TEXT,
+      notice_period_days INT NOT NULL DEFAULT 30,
+      cancellation_deadline DATE,
+      contract_end_date DATE,
+      alert_sent_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Audit Log (Revision security & tracking)
   await query(`
     CREATE TABLE IF NOT EXISTS audit_logs (
@@ -246,6 +260,28 @@ export async function initDatabase() {
       details JSONB,
       ip_address VARCHAR(45),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Document share links (Ticket #16 — encrypted guest share links & public
+  // view endpoint). Opaque tokens authenticate the public /api/share/:token
+  // routes (guests are never logged in, so no JWT applies there). An
+  // optional bcrypt password hash gates access; failed_attempts/locked_until
+  // implement a per-link lockout to prevent password brute-forcing.
+  await query(`
+    CREATE TABLE IF NOT EXISTS document_share_links (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      token VARCHAR(64) UNIQUE NOT NULL,
+      password_hash VARCHAR(255),
+      expires_at TIMESTAMP WITH TIME ZONE,
+      max_downloads INT,
+      download_count INT NOT NULL DEFAULT 0,
+      failed_attempts INT NOT NULL DEFAULT 0,
+      locked_until TIMESTAMP WITH TIME ZONE,
+      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      revoked_at TIMESTAMP WITH TIME ZONE
     );
   `);
 

@@ -21,4 +21,10 @@ export const config = {
   llmProvider: (process.env.LLM_PROVIDER || 'ollama') as 'ollama' | 'openai',
   ollamaHost: process.env.OLLAMA_HOST || 'http://localhost:11434',
   openaiApiKey: process.env.OPENAI_API_KEY || '',
+
+  // Offsite Backup & Disaster Recovery (Ticket #17). The `backup` container
+  // writes last-backup-status.json into this path via a shared Docker
+  // volume (see docker-compose.yml's backup_status volume, mounted
+  // read-write into `backup` and read-only into `backend`).
+  backupStatusPath: process.env.BACKUP_STATUS_PATH || path.join('/app/backup-status', 'last-backup-status.json'),
 };
