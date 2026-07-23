@@ -1,5 +1,5 @@
 import React from 'react';
-import { Files, FolderSync, GitMerge, ShieldCheck, Tag, Settings, LayoutDashboard, BarChart3, FileClock, HardDriveDownload } from 'lucide-react';
+import { Files, FolderSync, GitMerge, ShieldCheck, Tag, Settings, LayoutDashboard, BarChart3, FileClock, HardDriveDownload, Lock } from 'lucide-react';
 
 interface SidebarProps {
   currentTab: string;
@@ -19,6 +19,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, userR
     // hide the nav item entirely for non-admins rather than relying solely
     // on the backend's 403 fallback.
     ...(userRole === 'admin' ? [{ id: 'backup', label: 'Backup & Recovery', icon: HardDriveDownload }] : []),
+    // Admin-only: access-group / tag-ACL management (Ticket #19), same
+    // client-side hiding pattern as the Backup tab above.
+    ...(userRole === 'admin' ? [{ id: 'acl', label: 'Zugriffsgruppen (ACL)', icon: Lock }] : []),
     { id: 'settings', label: 'Profil & Sicherheit', icon: Settings },
   ];
 

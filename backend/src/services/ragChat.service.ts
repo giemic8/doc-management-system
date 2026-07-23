@@ -3,6 +3,7 @@ import pgvector from 'pgvector';
 import { query } from '../database/db';
 import { config } from '../config';
 import { computeEmbedding } from './embedding.service';
+import { AclContext, buildDocumentAclWhereClause } from './acl.service';
 
 const DEFAULT_TOP_K = 8;
 
@@ -54,7 +55,8 @@ export interface ChatQueryResult {
 export async function retrieveRelevantChunks(
   question: string,
   scope: ChatScope = {},
-  topK: number = DEFAULT_TOP_K
+  topK: number = DEFAULT_TOP_K,
+  aclCtx?: AclContext
 ): Promise<RetrievedChunk[]> {
   const questionEmbedding = await computeEmbedding(question);
 
@@ -74,6 +76,18 @@ export async function retrieveRelevantChunks(
   if (scope.dateTo) {
     params.push(scope.dateTo);
     conditions.push(`d.document_date <= $${params.length}`);
+  }
+
+  // Ticket #19 -- Granular Tag ACLs. This closes the gap explicitly
+  // flagged when this pipeline was first built: chat retrieval now
+  // respects the exact same per-user tag visibility rule as
+  // GET /api/documents and GET /api/search (admins bypass it; no-op if
+  // no ACLs are configured yet).
+  if (aclCtx) {
+    const aclClause = buildDocumentAclWhereClause(aclCtx, params);
+    if (aclClause) {
+      conditions.push(aclClause);
+    }
   }
 
   params.push(topK);
@@ -240,9 +254,10 @@ export async function answerQuestion(
   question: string,
   scope: ChatScope = {},
   topK: number = DEFAULT_TOP_K,
-  llmCaller: (prompt: ChatPrompt) => Promise<string> = callChatLLM
+  llmCaller: (prompt: ChatPrompt) => Promise<string> = callChatLLM,
+  aclCtx?: AclContext
 ): Promise<ChatQueryResult> {
-  const chunks = await retrieveRelevantChunks(question, scope, topK);
+  const chunks = await retrieveRelevantChunks(question, scope, topK, aclCtx);
   const prompt = buildChatPrompt(question, chunks);
   const answer = await llmCaller(prompt);
   const citations = parseCitations(answer, chunks);

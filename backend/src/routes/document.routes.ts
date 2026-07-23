@@ -15,6 +15,7 @@ import { isRetentionLocked } from '../services/retention.service';
 import { buildSepaEpcPayload } from '../services/sepaQr.service';
 import QRCode from 'qrcode';
 import { config } from '../config';
+import { buildDocumentAclWhereClause, canUserAccessDocument, canUserModifyDocument, canUserDeleteDocument, logUnauthorizedAccess } from '../services/acl.service';
 
 const router = Router();
 const upload = multer({ dest: path.join(__dirname, '../../../storage/tmp') });
@@ -50,6 +51,15 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
     if (status) {
       params.push(status);
       queryText += ` AND d.status = $${params.length}`;
+    }
+
+    // Ticket #19 -- Granular Tag ACLs: hide documents whose tags aren't
+    // granted to any of the requesting (non-admin) user's groups.
+    // Admins bypass this entirely (see acl.service.ts). No-op if no
+    // groups/permissions have been configured yet (backward compatible).
+    const aclClause = buildDocumentAclWhereClause({ userId: req.user!.id, role: req.user!.role }, params);
+    if (aclClause) {
+      queryText += ` AND ${aclClause}`;
     }
 
     queryText += ` GROUP BY d.id ORDER BY d.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
@@ -222,6 +232,23 @@ router.post('/bulk/delete', authenticateToken, async (req: AuthRequest, res: Res
       });
     }
 
+    // Ticket #19 -- Granular Tag ACLs: deleting requires can_delete on
+    // every targeted document's tags.
+    const ctx = { userId: req.user!.id, role: req.user!.role };
+    const deniedIds: string[] = [];
+    for (const docId of documentIds) {
+      if (!(await canUserDeleteDocument(ctx, docId))) {
+        deniedIds.push(docId);
+      }
+    }
+    if (deniedIds.length > 0) {
+      await logUnauthorizedAccess(req.user!.id, null, 'bulk_delete', req);
+      return res.status(403).json({
+        error: 'You do not have permission to delete one or more of the selected documents',
+        deniedDocumentIds: deniedIds,
+      });
+    }
+
     await query(
       `INSERT INTO audit_logs (document_id, user_id, action, details)
        SELECT id, $2, 'bulk_delete', jsonb_build_object('title', title) FROM documents WHERE id = ANY($1::uuid[]);`,
@@ -238,6 +265,14 @@ router.post('/bulk/delete', authenticateToken, async (req: AuthRequest, res: Res
 router.get('/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+
+    // Ticket #19 -- Granular Tag ACLs.
+    const allowed = await canUserAccessDocument({ userId: req.user!.id, role: req.user!.role }, id);
+    if (!allowed) {
+      await logUnauthorizedAccess(req.user!.id, id, 'view_document', req);
+      return res.status(403).json({ error: 'You do not have permission to view this document' });
+    }
+
     const docRes = await query(`
       SELECT d.*, 
         COALESCE(
@@ -342,6 +377,15 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req: Aut
 router.get('/:id/file', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+
+    // Ticket #19 -- Granular Tag ACLs: block streaming the actual file
+    // bytes to a user whose groups aren't granted the document's tags.
+    const allowed = await canUserAccessDocument({ userId: req.user!.id, role: req.user!.role }, id);
+    if (!allowed) {
+      await logUnauthorizedAccess(req.user!.id, id, 'download_file', req);
+      return res.status(403).json({ error: 'You do not have permission to access this document' });
+    }
+
     const docRes = await query(`SELECT file_path, derived_file_path, original_filename, mime_type, is_encrypted, encryption_iv, encryption_auth_tag FROM documents WHERE id = $1;`, [id]);
     
     if (docRes.rows.length === 0) {
@@ -415,6 +459,15 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
   try {
     const { id } = req.params;
     const { title, doc_type, sender, recipient, document_date, due_date, amount, summary, tags } = req.body;
+
+    // Ticket #19 -- Granular Tag ACLs: writing requires can_write on the
+    // document's current tags (a user might have read but not write
+    // access to a sensitive tag like "Medical").
+    const canModify = await canUserModifyDocument({ userId: req.user!.id, role: req.user!.role }, id);
+    if (!canModify) {
+      await logUnauthorizedAccess(req.user!.id, id, 'update_metadata', req);
+      return res.status(403).json({ error: 'You do not have permission to modify this document' });
+    }
 
     const lockCheck = await query(`SELECT retention_until, legal_hold FROM documents WHERE id = $1;`, [id]);
     if (lockCheck.rows.length > 0 && isRetentionLocked(lockCheck.rows[0])) {

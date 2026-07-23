@@ -4,6 +4,7 @@ import { query } from '../database/db';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import { generateEmbedding } from '../services/embedding.service';
 import { reciprocalRankFusion } from '../services/hybridSearch.service';
+import { buildDocumentAclWhereClause } from '../services/acl.service';
 
 const router = Router();
 
@@ -48,7 +49,16 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
     }
 
     const ids = fused.map((f) => f.id);
-    const docsRes = await query(`SELECT * FROM documents WHERE id = ANY($1::uuid[]);`, [ids]);
+    const docsParams: any[] = [ids];
+    let docsQuery = `SELECT d.* FROM documents d WHERE d.id = ANY($1::uuid[])`;
+    // Ticket #19 -- Granular Tag ACLs: strip out any fused result the
+    // requesting (non-admin) user's groups aren't granted read access to.
+    // Admins bypass this (see acl.service.ts); no-op if no ACLs configured.
+    const aclClause = buildDocumentAclWhereClause({ userId: req.user!.id, role: req.user!.role }, docsParams);
+    if (aclClause) {
+      docsQuery += ` AND ${aclClause}`;
+    }
+    const docsRes = await query(docsQuery, docsParams);
     const docsById = new Map(docsRes.rows.map((d: any) => [d.id, d]));
 
     const results = fused

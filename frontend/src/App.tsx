@@ -10,10 +10,12 @@ import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { ContractDashboard } from './components/ContractDashboard';
 import { SettingsPage } from './components/SettingsPage';
 import { BackupStatusPage } from './components/BackupStatusPage';
+import { AclManagement } from './components/AclManagement';
 import { AuthGate } from './components/AuthGate';
 import { BatchUploadQueue } from './components/BatchUploadQueue';
+import { ChatDrawer } from './components/ChatDrawer';
 import { DocumentItem, User } from './types';
-import { fetchDocuments, uploadDocument, bulkAddTag, bulkSetDocType, bulkDeleteDocuments, fetchTags } from './services/api';
+import { fetchDocuments, uploadDocument, bulkAddTag, bulkSetDocType, bulkDeleteDocuments, fetchTags, fetchDocumentDetail } from './services/api';
 import { FolderSync, ListChecks, X, Tag as TagIcon, Trash2, FolderInput } from 'lucide-react';
 
 const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogout }) => {
@@ -25,6 +27,8 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
   const [isUploading, setIsUploading] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatHighlightHint, setChatHighlightHint] = useState<string | undefined>(undefined);
 
   const loadDocs = async () => {
     try {
@@ -131,6 +135,19 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
     loadDocs();
   };
 
+  // Ticket #18 — opens a document (by id) from a chat citation click,
+  // optionally carrying the citation snippet along as a highlight hint
+  // for the PDF viewer (see PDFViewer.tsx `highlightHint` prop docs).
+  const handleOpenDocumentFromChat = async (documentId: string, highlightHint?: string) => {
+    try {
+      const doc = await fetchDocumentDetail(documentId);
+      setChatHighlightHint(highlightHint);
+      setSelectedDoc(doc);
+    } catch (err) {
+      console.error('Konnte Dokument aus Zitat nicht laden', err);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
       <Navbar
@@ -141,6 +158,7 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
         onCameraClick={() => setShowScanner(true)}
         onSettingsClick={() => setCurrentTab('settings')}
         onLogout={onLogout}
+        onChatClick={() => setChatOpen(true)}
       />
 
       <input
@@ -232,6 +250,7 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
           {currentTab === 'analytics' && <AnalyticsDashboard />}
           {currentTab === 'contracts' && <ContractDashboard />}
           {currentTab === 'backup' && <BackupStatusPage />}
+          {currentTab === 'acl' && <AclManagement />}
           {currentTab === 'settings' && <SettingsPage user={user} />}
         </main>
       </div>
@@ -240,8 +259,12 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
       {selectedDoc && (
         <DocumentDetailModal
           document={selectedDoc}
-          onClose={() => setSelectedDoc(null)}
+          onClose={() => {
+            setSelectedDoc(null);
+            setChatHighlightHint(undefined);
+          }}
           onUpdate={loadDocs}
+          highlightHint={chatHighlightHint}
         />
       )}
 
@@ -249,6 +272,13 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
         <MobileScanner
           onClose={() => setShowScanner(false)}
           onUploadSuccess={loadDocs}
+        />
+      )}
+
+      {chatOpen && (
+        <ChatDrawer
+          onClose={() => setChatOpen(false)}
+          onOpenDocument={handleOpenDocumentFromChat}
         />
       )}
 

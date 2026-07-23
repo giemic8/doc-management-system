@@ -46,4 +46,14 @@ router.put(
   }
 );
 
+// GET /api/admin/users (admin: list all users, for access-group member management)
+router.get('/users', authenticateToken, requireRole(['admin']), async (_req: AuthRequest, res: Response) => {
+  try {
+    const result = await query(`SELECT id, email, name, role FROM users ORDER BY name ASC;`);
+    return res.json({ users: result.rows });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

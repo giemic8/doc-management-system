@@ -7,13 +7,13 @@ const router = Router();
 // POST /api/chat/query
 // Body: { question: string, scope?: { tagId?: string; dateFrom?: string; dateTo?: string } }
 //
-// NOTE on visibility: this endpoint applies NO per-user document
-// visibility filtering beyond `is_archived = FALSE`, matching the exact
-// same uniform-visibility model as GET /api/search and GET /api/documents
-// (neither of which filters by `created_by` / role today). This is a
-// known gap tracked separately under ticket #19 (ACL); once #19 lands,
-// this route's retrieval query will need the same per-user scoping
-// applied there.
+// Ticket #19 -- Granular Tag ACLs: retrieval is scoped by the requesting
+// user's group tag permissions (see acl.service.ts / ragChat.service.ts's
+// retrieveRelevantChunks), matching the same visibility rule already
+// applied to GET /api/documents and GET /api/search. Admins bypass this
+// entirely; if no ACLs are configured yet, every document remains
+// visible (backward compatible with the pre-#19 uniform-visibility
+// model this endpoint originally shipped with).
 router.post('/query', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { question, scope } = req.body || {};
@@ -22,11 +22,17 @@ router.post('/query', authenticateToken, async (req: AuthRequest, res: Response)
       return res.status(400).json({ error: 'question is required' });
     }
 
-    const result = await answerQuestion(question.trim(), {
-      tagId: scope?.tagId,
-      dateFrom: scope?.dateFrom,
-      dateTo: scope?.dateTo,
-    });
+    const result = await answerQuestion(
+      question.trim(),
+      {
+        tagId: scope?.tagId,
+        dateFrom: scope?.dateFrom,
+        dateTo: scope?.dateTo,
+      },
+      undefined,
+      undefined,
+      { userId: req.user!.id, role: req.user!.role }
+    );
 
     return res.json(result);
   } catch (err: any) {

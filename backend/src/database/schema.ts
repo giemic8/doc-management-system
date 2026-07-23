@@ -285,6 +285,47 @@ export async function initDatabase() {
     );
   `);
 
+  // Access groups (Ticket #19 — granular tag/folder ACLs). A "group" is a
+  // named collection of users (e.g. "Finance", "HR"); tag-level
+  // permissions are granted per group via `group_tag_permissions`.
+  // Admins always see everything regardless of group membership (see
+  // acl.service.ts) — this system only restricts non-admin roles.
+  await query(`
+    CREATE TABLE IF NOT EXISTS access_groups (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name VARCHAR(255) UNIQUE NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // User <-> access group membership (many-to-many).
+  await query(`
+    CREATE TABLE IF NOT EXISTS user_access_groups (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      group_id UUID NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
+      PRIMARY KEY (user_id, group_id)
+    );
+  `);
+
+  // Per-group tag permissions: which tags a group is allowed to view
+  // (read) and/or modify (write) and/or delete. A document is visible to
+  // a non-admin user if EITHER (a) the document has no tags at all
+  // (untagged documents remain visible to everyone, since there is no
+  // ACL to apply), OR (b) at least one of the document's tags is granted
+  // to at least one of the user's groups with `can_read = true`. This
+  // "any matching tag grants access" model is documented explicitly in
+  // acl.service.ts, since it's the key semantic decision of this feature.
+  await query(`
+    CREATE TABLE IF NOT EXISTS group_tag_permissions (
+      group_id UUID NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
+      tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+      can_read BOOLEAN NOT NULL DEFAULT true,
+      can_write BOOLEAN NOT NULL DEFAULT false,
+      can_delete BOOLEAN NOT NULL DEFAULT false,
+      PRIMARY KEY (group_id, tag_id)
+    );
+  `);
+
   // Seed Admin user if none exists
   const existingUsers = await query(`SELECT COUNT(*) FROM users;`);
   if (parseInt(existingUsers.rows[0].count, 10) === 0) {
