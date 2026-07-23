@@ -36,6 +36,7 @@ export async function resetDatabase() {
       org_settings,
       webhook_deliveries,
       webhook_endpoints,
+      email_import_config,
       users
     RESTART IDENTITY CASCADE;
   `);

@@ -2,6 +2,7 @@ import { config } from './config';
 import { initDatabase } from './database/schema';
 import { StorageService } from './services/storage.service';
 import { WatchfolderService } from './services/watchfolder.service';
+import { startEmailImportScheduler } from './services/emailImportScheduler.service';
 import { app } from './app';
 
 async function main() {
@@ -9,6 +10,7 @@ async function main() {
     StorageService.initStorageDirectories();
     await initDatabase();
     WatchfolderService.startWatching();
+    startEmailImportScheduler();
 
     app.listen(config.port, () => {
       console.log(`=======================================================`);

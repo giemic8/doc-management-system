@@ -11,6 +11,7 @@ import adminRoutes from './routes/admin.routes';
 import webhookRoutes from './routes/webhook.routes';
 import searchRoutes from './routes/search.routes';
 import customFieldRoutes from './routes/customField.routes';
+import emailImportRoutes from './routes/emailImport.routes';
 
 export const app = express();
 
@@ -28,6 +29,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/custom-fields', customFieldRoutes);
+app.use('/api/email-import', emailImportRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

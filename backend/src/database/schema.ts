@@ -33,6 +33,23 @@ export async function initDatabase() {
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret_encrypted VARCHAR(500);`);
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_backup_codes JSONB;`);
 
+  // Email import config (Ticket #8)
+  await query(`
+    CREATE TABLE IF NOT EXISTS email_import_config (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      host VARCHAR(255) NOT NULL,
+      port INT NOT NULL DEFAULT 993,
+      secure BOOLEAN NOT NULL DEFAULT true,
+      username VARCHAR(255) NOT NULL,
+      password_encrypted VARCHAR(500) NOT NULL,
+      poll_interval_minutes INT NOT NULL DEFAULT 5,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      last_polled_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Org-wide settings (single-row key/value table).
   await query(`
     CREATE TABLE IF NOT EXISTS org_settings (
