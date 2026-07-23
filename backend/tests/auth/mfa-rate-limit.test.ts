@@ -3,8 +3,7 @@ import request from 'supertest';
 import { authenticator } from 'otplib';
 import { app } from '../../src/app';
 import { resetDatabase, closeDatabase } from '../helpers/db';
-import { loginAsAdmin, ADMIN_EMAIL, ADMIN_PASSWORD } from '../helpers/auth';
-import { resetRateLimit } from '../../src/services/rateLimit.service';
+import { loginAsAdmin, createEditor, ADMIN_EMAIL, ADMIN_PASSWORD } from '../helpers/auth';
 
 async function enrollMfa(token: string) {
   const setupRes = await request(app).post('/api/auth/mfa/setup').set('Authorization', `Bearer ${token}`);
@@ -15,26 +14,22 @@ async function enrollMfa(token: string) {
 }
 
 describe('Rate limiting on MFA login challenge verification', () => {
-  let adminUserId: string;
-
   beforeAll(async () => {
     await resetDatabase();
   });
 
   beforeEach(async () => {
+    // resetDatabase() also clears all rate-limit counters (see helpers/db.ts),
+    // which matters here since IP-keyed limits would otherwise leak across
+    // test files (supertest requests all originate from the same address).
     await resetDatabase();
-    const meRes = await request(app).post('/api/auth/login').send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
-    // Decode without verifying just to get the id for direct rate-limit reset between tests.
-    const payload = JSON.parse(Buffer.from(meRes.body.token.split('.')[1], 'base64').toString());
-    adminUserId = payload.id;
-    await resetRateLimit(`mfa-verify:${adminUserId}`);
   });
 
   afterAll(async () => {
     await closeDatabase();
   });
 
-  it('rejects further attempts once the limit is exceeded, even with a correct code afterwards', async () => {
+  it('rejects further attempts once the per-user limit is exceeded, even with a correct code afterwards', async () => {
     const { token: adminToken } = await loginAsAdmin(app);
     const secret = await enrollMfa(adminToken);
 
@@ -55,6 +50,41 @@ describe('Rate limiting on MFA login challenge verification', () => {
     const blockedRes = await request(app)
       .post('/api/auth/mfa/verify-login')
       .send({ challengeToken: loginRes.body.challengeToken, code: correctCode });
+
+    expect(blockedRes.status).toBe(429);
+  });
+
+  it('rejects further attempts once the per-IP limit is exceeded, even across different target accounts', async () => {
+    // Two different editors, MFA-enabled, both attacked from the same source IP
+    // (supertest requests all originate from the same local address in tests).
+    const editorA = await createEditor(app);
+    const loginA = await request(app).post('/api/auth/login').send({ email: editorA.email, password: editorA.password });
+    await enrollMfa(loginA.body.token);
+
+    const editorB = await createEditor(app);
+    const loginB = await request(app).post('/api/auth/login').send({ email: editorB.email, password: editorB.password });
+    await enrollMfa(loginB.body.token);
+
+    // Spread 5 wrong attempts across both accounts from the same IP.
+    for (let i = 0; i < 5; i++) {
+      const email = i % 2 === 0 ? editorA.email : editorB.email;
+      const password = i % 2 === 0 ? editorA.password : editorB.password;
+      const loginRes = await request(app).post('/api/auth/login').send({ email, password });
+      await request(app)
+        .post('/api/auth/mfa/verify-login')
+        .send({ challengeToken: loginRes.body.challengeToken, code: '000000' });
+    }
+
+    // A 6th attempt against a fresh account from the same IP is blocked by the
+    // IP-wide limit even though that account's own per-user limit is untouched.
+    const editorC = await createEditor(app);
+    const loginC = await request(app).post('/api/auth/login').send({ email: editorC.email, password: editorC.password });
+    await enrollMfa(loginC.body.token);
+
+    const loginAttempt = await request(app).post('/api/auth/login').send({ email: editorC.email, password: editorC.password });
+    const blockedRes = await request(app)
+      .post('/api/auth/mfa/verify-login')
+      .send({ challengeToken: loginAttempt.body.challengeToken, code: '000000' });
 
     expect(blockedRes.status).toBe(429);
   });

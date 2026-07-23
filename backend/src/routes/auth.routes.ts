@@ -96,8 +96,9 @@ router.post('/mfa/verify-login', async (req: AuthRequest, res: Response) => {
     return res.status(401).json({ error: 'Invalid or expired challenge' });
   }
 
-  const rateLimit = await checkRateLimit(`mfa-verify:${userId}`, { limit: 5, windowSeconds: 15 * 60 });
-  if (!rateLimit.allowed) {
+  const perUserLimit = await checkRateLimit(`mfa-verify:user:${userId}`, { limit: 5, windowSeconds: 15 * 60 });
+  const perIpLimit = await checkRateLimit(`mfa-verify:ip:${req.ip}`, { limit: 5, windowSeconds: 15 * 60 });
+  if (!perUserLimit.allowed || !perIpLimit.allowed) {
     return res.status(429).json({ error: 'Too many attempts. Please try again later.' });
   }
 
@@ -159,6 +160,26 @@ router.get('/mfa/status', authenticateToken, async (req: AuthRequest, res: Respo
 // POST /api/auth/mfa/setup
 router.post('/mfa/setup', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
+    const userRes = await query(`SELECT * FROM users WHERE id = $1;`, [req.user!.id]);
+    const user = userRes.rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Restarting setup on an already-enrolled account requires the current
+    // password, so a hijacked session token alone can't be used to stage a
+    // takeover by overwriting the TOTP secret ahead of a fresh /confirm.
+    if (user.mfa_enabled) {
+      const { password } = req.body;
+      if (!password) {
+        return res.status(401).json({ error: 'Current password is required to restart MFA setup' });
+      }
+      const isMatch = await bcrypt.compare(password, user.password_hash);
+      if (!isMatch) {
+        return res.status(401).json({ error: 'Incorrect password' });
+      }
+    }
+
     const secret = generateTotpSecret();
     const encrypted = encryptSecret(secret);
 

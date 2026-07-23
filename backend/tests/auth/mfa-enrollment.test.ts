@@ -3,7 +3,7 @@ import request from 'supertest';
 import { authenticator } from 'otplib';
 import { app } from '../../src/app';
 import { resetDatabase, closeDatabase } from '../helpers/db';
-import { loginAsAdmin } from '../helpers/auth';
+import { loginAsAdmin, ADMIN_PASSWORD } from '../helpers/auth';
 
 describe('MFA enrollment', () => {
   beforeAll(async () => {
@@ -51,6 +51,34 @@ describe('MFA enrollment', () => {
 
       const status = await request(app).get('/api/auth/mfa/status').set('Authorization', `Bearer ${token}`);
       expect(status.body.mfaEnabled).toBe(false);
+    });
+
+    it('requires the current password to restart setup once MFA is already enabled', async () => {
+      const { token } = await loginAsAdmin(app);
+      const firstSetup = await request(app).post('/api/auth/mfa/setup').set('Authorization', `Bearer ${token}`);
+      const firstCode = authenticator.generate(firstSetup.body.secret);
+      await request(app).post('/api/auth/mfa/confirm').set('Authorization', `Bearer ${token}`).send({ code: firstCode });
+
+      // A session token alone (no password) can't be used to stage a takeover
+      // of an already-enrolled account.
+      const noPasswordRes = await request(app).post('/api/auth/mfa/setup').set('Authorization', `Bearer ${token}`);
+      expect(noPasswordRes.status).toBe(401);
+
+      const wrongPasswordRes = await request(app)
+        .post('/api/auth/mfa/setup')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ password: 'wrong-password' });
+      expect(wrongPasswordRes.status).toBe(401);
+
+      // MFA is still enabled and untouched throughout.
+      const status = await request(app).get('/api/auth/mfa/status').set('Authorization', `Bearer ${token}`);
+      expect(status.body.mfaEnabled).toBe(true);
+
+      const correctPasswordRes = await request(app)
+        .post('/api/auth/mfa/setup')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ password: ADMIN_PASSWORD });
+      expect(correctPasswordRes.status).toBe(200);
     });
   });
 
