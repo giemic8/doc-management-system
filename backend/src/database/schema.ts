@@ -20,7 +20,24 @@ export async function initDatabase() {
       password_hash VARCHAR(255) NOT NULL,
       name VARCHAR(255) NOT NULL,
       role VARCHAR(50) NOT NULL DEFAULT 'editor',
+      mfa_enabled BOOLEAN NOT NULL DEFAULT false,
+      totp_secret_encrypted VARCHAR(500),
+      mfa_backup_codes JSONB,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Idempotent column additions for pre-existing databases created before MFA.
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT false;`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret_encrypted VARCHAR(500);`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_backup_codes JSONB;`);
+
+  // Org-wide settings (single-row key/value table).
+  await query(`
+    CREATE TABLE IF NOT EXISTS org_settings (
+      key VARCHAR(100) PRIMARY KEY,
+      value JSONB NOT NULL,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
   `);

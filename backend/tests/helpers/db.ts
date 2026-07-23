@@ -19,6 +19,7 @@ export async function resetDatabase() {
       custom_fields,
       workflows,
       tags,
+      org_settings,
       users
     RESTART IDENTITY CASCADE;
   `);
