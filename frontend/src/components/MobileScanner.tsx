@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, X, Check, RefreshCw, Upload, Sparkles } from 'lucide-react';
+import { Camera, X, Check, RefreshCw, Upload, Sparkles, WifiOff } from 'lucide-react';
 import { uploadDocument } from '../services/api';
+import { queueScan } from '../services/offlineQueue';
 
 interface MobileScannerProps {
   onClose: () => void;
@@ -13,6 +14,7 @@ export const MobileScanner: React.FC<MobileScannerProps> = ({ onClose, onUploadS
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+  const [offlineNotice, setOfflineNotice] = useState<string | null>(null);
 
   useEffect(() => {
     startCamera();
@@ -58,15 +60,39 @@ export const MobileScanner: React.FC<MobileScannerProps> = ({ onClose, onUploadS
   const handleUploadCaptured = async () => {
     if (!capturedImage) return;
     setUploading(true);
+    setOfflineNotice(null);
     try {
       // Convert DataURL to File blob
       const res = await fetch(capturedImage);
       const blob = await res.blob();
-      const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      const filename = `scan_${Date.now()}.jpg`;
 
-      await uploadDocument(file);
-      onUploadSuccess();
-      onClose();
+      // Check connectivity proactively before even attempting the network
+      // call — avoids a doomed request and immediately buffers the scan
+      // locally instead of failing outright.
+      if (!navigator.onLine) {
+        await queueScan(blob, filename);
+        setOfflineNotice(
+          'Offline — Scan wurde lokal gespeichert und wird synchronisiert, sobald wieder Internet verfügbar ist.'
+        );
+        return;
+      }
+
+      const file = new File([blob], filename, { type: 'image/jpeg' });
+
+      try {
+        await uploadDocument(file);
+        onUploadSuccess();
+        onClose();
+      } catch (uploadErr) {
+        // Network call failed despite navigator.onLine being true (e.g.
+        // flaky connection, captive portal) — fall back to buffering
+        // locally rather than losing the scan.
+        await queueScan(blob, filename);
+        setOfflineNotice(
+          'Offline — Scan wurde lokal gespeichert und wird synchronisiert, sobald wieder Internet verfügbar ist.'
+        );
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -107,36 +133,48 @@ export const MobileScanner: React.FC<MobileScannerProps> = ({ onClose, onUploadS
       </div>
 
       {/* Footer Capture Controls */}
-      <div className="flex items-center justify-center gap-6 py-2">
-        {!capturedImage ? (
-          <button
-            onClick={capturePhoto}
-            className="w-16 h-16 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 p-1 shadow-xl shadow-indigo-500/30 transition-transform active:scale-95 flex items-center justify-center"
-          >
-            <div className="w-full h-full rounded-full bg-white flex items-center justify-center">
-              <Camera className="w-7 h-7 text-indigo-600" />
-            </div>
-          </button>
-        ) : (
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setCapturedImage(null)}
-              className="btn-secondary py-3 px-5 text-sm"
-            >
-              <RefreshCw className="w-4 h-4" />
-              <span>Neu aufnehmen</span>
-            </button>
-
-            <button
-              onClick={handleUploadCaptured}
-              disabled={uploading}
-              className="btn-primary py-3 px-6 text-sm"
-            >
-              <Upload className="w-4 h-4" />
-              <span>{uploading ? 'Wird hochgeladen...' : 'Scan Hochladen'}</span>
-            </button>
+      <div className="flex flex-col items-center gap-3 py-2">
+        {offlineNotice && (
+          <div className="flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 max-w-sm text-center">
+            <WifiOff className="w-4 h-4 flex-shrink-0" />
+            <span>{offlineNotice}</span>
           </div>
         )}
+
+        <div className="flex items-center justify-center gap-6">
+          {!capturedImage ? (
+            <button
+              onClick={capturePhoto}
+              className="w-16 h-16 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 p-1 shadow-xl shadow-indigo-500/30 transition-transform active:scale-95 flex items-center justify-center"
+            >
+              <div className="w-full h-full rounded-full bg-white flex items-center justify-center">
+                <Camera className="w-7 h-7 text-indigo-600" />
+              </div>
+            </button>
+          ) : (
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => {
+                  setCapturedImage(null);
+                  setOfflineNotice(null);
+                }}
+                className="btn-secondary py-3 px-5 text-sm"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Neu aufnehmen</span>
+              </button>
+
+              <button
+                onClick={handleUploadCaptured}
+                disabled={uploading}
+                className="btn-primary py-3 px-6 text-sm"
+              >
+                <Upload className="w-4 h-4" />
+                <span>{uploading ? 'Wird hochgeladen...' : 'Scan Hochladen'}</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

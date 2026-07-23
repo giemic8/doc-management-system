@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Search, Upload, Camera, FileText, Settings, LogOut } from 'lucide-react';
 import { User } from '../types';
+import { OfflineQueueIndicator } from './OfflineQueueIndicator';
 
 interface NavbarProps {
   user: User | null;
@@ -52,6 +53,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Quick Actions */}
       <div className="flex items-center gap-3">
+        <OfflineQueueIndicator />
+
         {/* Mobile Camera Scan */}
         <button
           onClick={onCameraClick}
