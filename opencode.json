@@ -1,0 +1,39 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {},
+  "agent": {
+    "build": {
+      "mode": "primary",
+      "prompt": "{file:./.opencode/prompts/build.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow"
+      }
+    },
+    "tech-lead": {
+      "mode": "primary",
+      "prompt": "{file:./.opencode/prompts/tech-lead.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow"
+      }
+    }
+  },
+  "provider": {
+    "litellm": {
+      "models": {
+        "claude-sonnet-4.6": {},
+        "claude-sonnet-5": {},
+        "gpt-5.6-luna": {},
+        "gpt-5.6-terra": {},
+        "text-embedding-3-small": {}
+      },
+      "name": "LiteLLM (litellm)",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "apiKey": "{file:/Users/migi/Library/Application Support/exxaiting/project-tools/bdcb6eb1-97e9-4336-aa31-5c9d27cd5d87/provider-credentials/litellm/api-key}",
+        "baseURL": "https://ai.exxeta.info/v1"
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+model = "claude-sonnet-5"
+model_provider = "litellm"
+
+[model_providers]
+litellm = { name = "LiteLLM (litellm)", base_url = "https://ai.exxeta.info/v1", env_key = "LITELLM_LITELLM_API_KEY", wire_api = "responses" }
