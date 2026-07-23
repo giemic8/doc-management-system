@@ -10,6 +10,8 @@ import { addDocumentProcessingJob } from '../services/queue.service';
 import { splitPdfPages, mergePdfs } from '../services/pdfTools.service';
 import { dispatchWebhookEvent } from '../services/webhookDispatch.service';
 import { validateCustomFieldValues, CustomFieldDefinition } from '../services/customFieldValidation.service';
+import { encryptFile, decryptFile, createDecryptStream } from '../services/fileEncryption.service';
+import { config } from '../config';
 
 const router = Router();
 const upload = multer({ dest: path.join(__dirname, '../../../storage/tmp') });
@@ -216,15 +218,28 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req: Aut
     const originalName = req.file.originalname;
     const mimeType = req.file.mimetype || 'application/pdf';
     const fileHash = await StorageService.calculateFileHash(tempPath);
-    
+
     const targetPath = StorageService.getOriginalFilePath(`${Date.now()}_${originalName}`);
-    fs.renameSync(tempPath, targetPath);
+
+    let isEncrypted = false;
+    let encryptionIv: string | null = null;
+    let encryptionAuthTag: string | null = null;
+
+    if (config.storageEncryptionEnabled) {
+      const result = await encryptFile(tempPath, targetPath);
+      encryptionIv = result.iv;
+      encryptionAuthTag = result.authTag;
+      isEncrypted = true;
+      fs.unlinkSync(tempPath);
+    } else {
+      fs.renameSync(tempPath, targetPath);
+    }
 
     const dbResult = await query(
-      `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, 'processing', $7)
+      `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by, is_encrypted, encryption_iv, encryption_auth_tag)
+       VALUES ($1, $2, $3, $4, $5, $6, 'processing', $7, $8, $9, $10)
        RETURNING *;`,
-      [originalName, originalName, targetPath, req.file.size, mimeType, fileHash, req.user?.id]
+      [originalName, originalName, targetPath, req.file.size, mimeType, fileHash, req.user?.id, isEncrypted, encryptionIv, encryptionAuthTag]
     );
 
     const doc = dbResult.rows[0];
@@ -252,7 +267,7 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req: Aut
 router.get('/:id/file', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const docRes = await query(`SELECT file_path, derived_file_path, original_filename, mime_type FROM documents WHERE id = $1;`, [id]);
+    const docRes = await query(`SELECT file_path, derived_file_path, original_filename, mime_type, is_encrypted, encryption_iv, encryption_auth_tag FROM documents WHERE id = $1;`, [id]);
     
     if (docRes.rows.length === 0) {
       return res.status(404).json({ error: 'Document not found' });
@@ -269,7 +284,16 @@ router.get('/:id/file', authenticateToken, async (req: AuthRequest, res: Respons
 
     res.setHeader('Content-Type', doc.mime_type || 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
-    fs.createReadStream(servePath).pipe(res);
+
+    // Encryption-at-rest applies to the original file; derived files (e.g.
+    // OCR-processed variants) are written back out in plaintext by the
+    // worker today, so only decrypt when serving the original.
+    if (doc.is_encrypted && servePath === doc.file_path && doc.encryption_iv && doc.encryption_auth_tag) {
+      const decryptStream = createDecryptStream(doc.encryption_iv, doc.encryption_auth_tag);
+      fs.createReadStream(servePath).pipe(decryptStream).pipe(res);
+    } else {
+      fs.createReadStream(servePath).pipe(res);
+    }
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

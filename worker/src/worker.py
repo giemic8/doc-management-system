@@ -7,6 +7,7 @@ from pgvector.psycopg2 import register_vector
 from ocr_engine import OCREngine
 from ai_extractor import AIExtractor
 from embedding_generator import EmbeddingGenerator, chunk_text
+from file_decryption import decrypt_file_to_temp
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://dms_user:dms_secret_password@localhost:5432/dms_db")
 
@@ -37,10 +38,21 @@ def process_pending_documents():
                     doc_id = doc['id']
                     file_path = doc['file_path']
                     print(f"Processing Document ID: {doc_id} ({doc['original_filename']})...")
-                    
+
+                    # If the file is encrypted at rest, decrypt to a temp file for
+                    # processing; the temp plaintext copy is removed afterwards.
+                    ocr_source_path = file_path
+                    decrypted_temp_path = None
+                    if doc.get('is_encrypted') and doc.get('encryption_iv') and doc.get('encryption_auth_tag'):
+                        decrypted_temp_path = decrypt_file_to_temp(file_path, doc['encryption_iv'], doc['encryption_auth_tag'])
+                        ocr_source_path = decrypted_temp_path
+
                     # 1. OCR Extraction
-                    ocr_text = OCREngine.extract_text_from_file(file_path)
+                    ocr_text = OCREngine.extract_text_from_file(ocr_source_path)
                     print(f"Extracted {len(ocr_text)} characters of text.")
+
+                    if decrypted_temp_path and os.path.exists(decrypted_temp_path):
+                        os.remove(decrypted_temp_path)
                     
                     # 2. AI Metadata Extraction
                     meta = ai_extractor.extract_metadata(ocr_text)

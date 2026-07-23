@@ -48,6 +48,9 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_change_in_prod}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-change_this_mfa_encryption_key_in_prod}
+      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-change_this_storage_encryption_key_in_prod}
+      STORAGE_ENCRYPTION_ENABLED: ${STORAGE_ENCRYPTION_ENABLED:-false}
       STORAGE_PATH: /app/storage
     volumes:
       - ./storage:/app/storage
@@ -71,6 +74,7 @@ services:
       OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-change_this_mfa_encryption_key_in_prod}
     volumes:
       - ./storage:/app/storage
     depends_on:

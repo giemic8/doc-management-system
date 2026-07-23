@@ -111,11 +111,17 @@ export async function initDatabase() {
       -- Flags & Security
       version INT NOT NULL DEFAULT 1,
       is_archived BOOLEAN DEFAULT FALSE,
+      is_encrypted BOOLEAN NOT NULL DEFAULT false,
+      encryption_iv VARCHAR(100),
+      encryption_auth_tag VARCHAR(100),
       created_by UUID REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_encrypted BOOLEAN NOT NULL DEFAULT false;`);
+  await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS encryption_iv VARCHAR(100);`);
+  await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS encryption_auth_tag VARCHAR(100);`);
 
   // Document Versions (Revision history)
   await query(`
