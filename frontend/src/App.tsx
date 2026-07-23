@@ -6,12 +6,13 @@ import { DocumentDetailModal } from './components/DocumentDetailModal';
 import { MobileScanner } from './components/MobileScanner';
 import { WorkflowEditor } from './components/WorkflowEditor';
 import { AuditLogView } from './components/AuditLogView';
+import { SettingsPage } from './components/SettingsPage';
+import { AuthGate } from './components/AuthGate';
 import { DocumentItem, User } from './types';
-import { fetchDocuments, uploadDocument, login } from './services/api';
-import { FolderSync, UploadCloud } from 'lucide-react';
+import { fetchDocuments, uploadDocument } from './services/api';
+import { FolderSync } from 'lucide-react';
 
-export const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>({ id: '1', email: 'admin@dms.local', name: 'Administrator', role: 'admin' });
+const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogout }) => {
   const [currentTab, setCurrentTab] = useState('documents');
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -96,6 +97,8 @@ export const App: React.FC = () => {
         onSearchChange={setSearchQuery}
         onUploadClick={() => document.getElementById('file-upload-input')?.click()}
         onCameraClick={() => setShowScanner(true)}
+        onSettingsClick={() => setCurrentTab('settings')}
+        onLogout={onLogout}
       />
 
       <input
@@ -148,6 +151,7 @@ export const App: React.FC = () => {
 
           {currentTab === 'workflows' && <WorkflowEditor />}
           {currentTab === 'audit' && <AuditLogView />}
+          {currentTab === 'settings' && <SettingsPage user={user} />}
         </main>
       </div>
 
@@ -169,3 +173,7 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
+export const App: React.FC = () => (
+  <AuthGate>{(user, onLogout) => <AppShell user={user} onLogout={onLogout} />}</AuthGate>
+);

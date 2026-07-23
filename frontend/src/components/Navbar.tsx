@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Upload, Camera, FileText, User as UserIcon, SlidersHorizontal } from 'lucide-react';
+import { Search, Upload, Camera, FileText, Settings, LogOut } from 'lucide-react';
 import { User } from '../types';
 
 interface NavbarProps {
@@ -8,6 +8,8 @@ interface NavbarProps {
   onSearchChange: (q: string) => void;
   onUploadClick: () => void;
   onCameraClick: () => void;
+  onSettingsClick: () => void;
+  onLogout: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -16,6 +18,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSearchChange,
   onUploadClick,
   onCameraClick,
+  onSettingsClick,
+  onLogout,
 }) => {
   return (
     <header className="h-16 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40 px-6 flex items-center justify-between">
@@ -66,11 +70,27 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* User Badge */}
         <div className="h-8 w-px bg-slate-800 mx-1" />
-        <div className="flex items-center gap-2 pl-1">
-          <div className="w-8 h-8 rounded-full bg-indigo-950 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-semibold text-xs">
-            {user ? user.name.substring(0, 2).toUpperCase() : 'AD'}
-          </div>
-        </div>
+        <button
+          onClick={onSettingsClick}
+          className="w-8 h-8 rounded-full bg-indigo-950 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-semibold text-xs hover:border-indigo-400 transition-colors"
+          title="Profileinstellungen"
+        >
+          {user ? user.name.substring(0, 2).toUpperCase() : 'AD'}
+        </button>
+        <button
+          onClick={onSettingsClick}
+          className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition-colors"
+          title="Einstellungen"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+        <button
+          onClick={onLogout}
+          className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-900 transition-colors"
+          title="Abmelden"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </div>
     </header>
   );

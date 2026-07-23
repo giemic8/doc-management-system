@@ -12,6 +12,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange }) => 
     { id: 'watchfolder', label: 'Inbound Scan Folder', icon: FolderSync },
     { id: 'workflows', label: 'Workflows & Regeln', icon: GitMerge },
     { id: 'audit', label: 'Audit Log & Revisions', icon: ShieldCheck },
+    { id: 'settings', label: 'Profil & Sicherheit', icon: Settings },
   ];
 
   return (

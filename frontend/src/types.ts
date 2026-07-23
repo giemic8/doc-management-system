@@ -56,3 +56,25 @@ export interface Workflow {
   is_active: boolean;
   created_at: string;
 }
+
+export interface LoginResult {
+  token?: string;
+  user?: User;
+  mfaRequired?: boolean;
+  mfaSetupRequired?: boolean;
+  challengeToken?: string;
+}
+
+export interface MfaSetupResult {
+  qrCodeDataUrl: string;
+  secret: string;
+}
+
+export interface MfaConfirmResult {
+  backupCodes: string[];
+}
+
+export interface MfaStatus {
+  mfaEnabled: boolean;
+  backupCodesRemaining: number;
+}

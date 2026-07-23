@@ -1,25 +1,85 @@
 import axios from 'axios';
+import { LoginResult, MfaConfirmResult, MfaSetupResult, MfaStatus, User } from '../types';
 
 const API_BASE = '/api';
+const TOKEN_KEY = 'dms_token';
 
 export const api = axios.create({
   baseURL: API_BASE,
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('dms_token');
+  const token = localStorage.getItem(TOKEN_KEY);
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-export async function login(email: string, password: string) {
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function clearStoredToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+export async function login(email: string, password: string): Promise<LoginResult> {
   const res = await api.post('/auth/login', { email, password });
   if (res.data.token) {
-    localStorage.setItem('dms_token', res.data.token);
+    localStorage.setItem(TOKEN_KEY, res.data.token);
   }
   return res.data;
+}
+
+export function logout() {
+  clearStoredToken();
+}
+
+export async function fetchCurrentUser(): Promise<User> {
+  const res = await api.get('/auth/me');
+  return res.data.user;
+}
+
+export async function verifyMfaLogin(challengeToken: string, code: string): Promise<LoginResult> {
+  const res = await api.post('/auth/mfa/verify-login', { challengeToken, code });
+  if (res.data.token) {
+    localStorage.setItem(TOKEN_KEY, res.data.token);
+  }
+  return res.data;
+}
+
+export async function fetchMfaStatus(): Promise<MfaStatus> {
+  const res = await api.get('/auth/mfa/status');
+  return res.data;
+}
+
+export async function startMfaSetup(): Promise<MfaSetupResult> {
+  const res = await api.post('/auth/mfa/setup');
+  return res.data;
+}
+
+export async function confirmMfaSetup(code: string): Promise<MfaConfirmResult> {
+  const res = await api.post('/auth/mfa/confirm', { code });
+  return res.data;
+}
+
+export async function disableMfa(password: string): Promise<void> {
+  await api.post('/auth/mfa/disable', { password });
+}
+
+export async function regenerateBackupCodes(password: string): Promise<MfaConfirmResult> {
+  const res = await api.post('/auth/mfa/backup-codes/regenerate', { password });
+  return res.data;
+}
+
+export async function fetchOrgMfaRequirement(): Promise<{ required: boolean }> {
+  const res = await api.get('/admin/settings/mfa-required');
+  return res.data;
+}
+
+export async function setOrgMfaRequirement(required: boolean): Promise<void> {
+  await api.put('/admin/settings/mfa-required', { required });
 }
 
 export async function fetchDocuments(params?: { search?: string; doc_type?: string; status?: string }) {
