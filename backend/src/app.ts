@@ -13,6 +13,9 @@ import searchRoutes from './routes/search.routes';
 import customFieldRoutes from './routes/customField.routes';
 import emailImportRoutes from './routes/emailImport.routes';
 import { documentRetentionRouter, auditExportRouter } from './routes/retention.routes';
+import chatRoutes from './routes/chat.routes';
+import { datevExportRouter } from './routes/datevExport.routes';
+import calendarRoutes from './routes/calendar.routes';
 
 export const app = express();
 
@@ -33,6 +36,9 @@ app.use('/api/custom-fields', customFieldRoutes);
 app.use('/api/email-import', emailImportRoutes);
 app.use('/api/documents', documentRetentionRouter);
 app.use('/api/export', auditExportRouter);
+app.use('/api/chat', chatRoutes);
+app.use('/api/export', datevExportRouter);
+app.use('/api/calendar', calendarRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

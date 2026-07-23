@@ -133,6 +133,7 @@ export async function initDatabase() {
       encryption_auth_tag VARCHAR(100),
       retention_until DATE,
       legal_hold BOOLEAN NOT NULL DEFAULT false,
+      tax_id VARCHAR(50),
       created_by UUID REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -143,6 +144,7 @@ export async function initDatabase() {
   await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS encryption_auth_tag VARCHAR(100);`);
   await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS retention_until DATE;`);
   await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS legal_hold BOOLEAN NOT NULL DEFAULT false;`);
+  await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tax_id VARCHAR(50);`);
 
   // Document Versions (Revision history)
   await query(`
@@ -216,6 +218,21 @@ export async function initDatabase() {
       actions_json JSONB NOT NULL,
       is_active BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Calendar feed tokens (Ticket #13 — iCal subscription feed)
+  // Opaque, per-user, revocable tokens used to authenticate the public
+  // GET /api/calendar/feed.ics endpoint via a `?token=` query param, since
+  // calendar apps (Apple/Google/Outlook) cannot send custom Authorization
+  // headers and thus can't use the normal JWT `authenticateToken` flow.
+  await query(`
+    CREATE TABLE IF NOT EXISTS calendar_feed_tokens (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token VARCHAR(64) UNIQUE NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      revoked_at TIMESTAMP WITH TIME ZONE
     );
   `);
 
