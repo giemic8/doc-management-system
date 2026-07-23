@@ -11,6 +11,7 @@ import { splitPdfPages, mergePdfs } from '../services/pdfTools.service';
 import { dispatchWebhookEvent } from '../services/webhookDispatch.service';
 import { validateCustomFieldValues, CustomFieldDefinition } from '../services/customFieldValidation.service';
 import { encryptFile, decryptFile, createDecryptStream } from '../services/fileEncryption.service';
+import { isRetentionLocked } from '../services/retention.service';
 import { config } from '../config';
 
 const router = Router();
@@ -207,6 +208,18 @@ router.post('/bulk/delete', authenticateToken, async (req: AuthRequest, res: Res
   }
 
   try {
+    const docsRes = await query(
+      `SELECT id, title, retention_until, legal_hold FROM documents WHERE id = ANY($1::uuid[]);`,
+      [documentIds]
+    );
+    const lockedDocs = docsRes.rows.filter((d: any) => isRetentionLocked(d));
+    if (lockedDocs.length > 0) {
+      return res.status(423).json({
+        error: 'One or more documents are locked by a retention policy or legal hold and cannot be deleted',
+        lockedDocumentIds: lockedDocs.map((d: any) => d.id),
+      });
+    }
+
     await query(
       `INSERT INTO audit_logs (document_id, user_id, action, details)
        SELECT id, $2, 'bulk_delete', jsonb_build_object('title', title) FROM documents WHERE id = ANY($1::uuid[]);`,
@@ -364,6 +377,11 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
   try {
     const { id } = req.params;
     const { title, doc_type, sender, recipient, document_date, due_date, amount, summary, tags } = req.body;
+
+    const lockCheck = await query(`SELECT retention_until, legal_hold FROM documents WHERE id = $1;`, [id]);
+    if (lockCheck.rows.length > 0 && isRetentionLocked(lockCheck.rows[0])) {
+      return res.status(423).json({ error: 'Document is locked by a retention policy or legal hold and cannot be modified' });
+    }
 
     const docRes = await query(
       `UPDATE documents 

@@ -131,6 +131,8 @@ export async function initDatabase() {
       is_encrypted BOOLEAN NOT NULL DEFAULT false,
       encryption_iv VARCHAR(100),
       encryption_auth_tag VARCHAR(100),
+      retention_until DATE,
+      legal_hold BOOLEAN NOT NULL DEFAULT false,
       created_by UUID REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -139,6 +141,8 @@ export async function initDatabase() {
   await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_encrypted BOOLEAN NOT NULL DEFAULT false;`);
   await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS encryption_iv VARCHAR(100);`);
   await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS encryption_auth_tag VARCHAR(100);`);
+  await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS retention_until DATE;`);
+  await query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS legal_hold BOOLEAN NOT NULL DEFAULT false;`);
 
   // Document Versions (Revision history)
   await query(`

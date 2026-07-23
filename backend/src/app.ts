@@ -12,6 +12,7 @@ import webhookRoutes from './routes/webhook.routes';
 import searchRoutes from './routes/search.routes';
 import customFieldRoutes from './routes/customField.routes';
 import emailImportRoutes from './routes/emailImport.routes';
+import { documentRetentionRouter, auditExportRouter } from './routes/retention.routes';
 
 export const app = express();
 
@@ -30,6 +31,8 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/custom-fields', customFieldRoutes);
 app.use('/api/email-import', emailImportRoutes);
+app.use('/api/documents', documentRetentionRouter);
+app.use('/api/export', auditExportRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
