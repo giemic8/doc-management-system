@@ -25,7 +25,7 @@ export interface FileEncryptionResult {
 export function encryptFile(
   sourcePath: string,
   destPath: string,
-  masterKey: string = config.mfaEncryptionKey
+  masterKey: string = config.storageEncryptionKey
 ): Promise<FileEncryptionResult> {
   return new Promise((resolve, reject) => {
     const key = deriveKey(masterKey);
@@ -49,7 +49,7 @@ export function decryptFile(
   destPath: string,
   ivHex: string,
   authTagHex: string,
-  masterKey: string = config.mfaEncryptionKey
+  masterKey: string = config.storageEncryptionKey
 ): Promise<void> {
   const key = deriveKey(masterKey);
   const iv = Buffer.from(ivHex, 'hex');
@@ -69,7 +69,7 @@ export function decryptFile(
  * encrypted file's read stream to an HTTP response, decrypting on-the-fly
  * without ever writing a plaintext copy to disk.
  */
-export function createDecryptStream(ivHex: string, authTagHex: string, masterKey: string = config.mfaEncryptionKey) {
+export function createDecryptStream(ivHex: string, authTagHex: string, masterKey: string = config.storageEncryptionKey) {
   const key = deriveKey(masterKey);
   const iv = Buffer.from(ivHex, 'hex');
   const authTag = Buffer.from(authTagHex, 'hex');

@@ -6,11 +6,11 @@ import crypto from 'crypto';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import { query } from '../database/db';
 import { StorageService } from '../services/storage.service';
-import { addDocumentProcessingJob } from '../services/queue.service';
+import { ingestDocument } from '../services/ingestion.service';
 import { splitPdfPages, mergePdfs } from '../services/pdfTools.service';
 import { dispatchWebhookEvent } from '../services/webhookDispatch.service';
 import { validateCustomFieldValues, CustomFieldDefinition } from '../services/customFieldValidation.service';
-import { encryptFile, decryptFile, createDecryptStream } from '../services/fileEncryption.service';
+import { decryptFile, createDecryptStream } from '../services/fileEncryption.service';
 import { isRetentionLocked } from '../services/retention.service';
 import { buildSepaEpcPayload } from '../services/sepaQr.service';
 import QRCode from 'qrcode';
@@ -111,7 +111,7 @@ router.post(
 
       const insertRes = await query(
         `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by, doc_type, sender, recipient)
-         VALUES ($1, $1, $2, $3, 'application/pdf', $4, 'processed', $5, $6, $7, $8)
+         VALUES ($1, $1, $2, $3, 'application/pdf', $4, 'ready', $5, $6, $7, $8)
          RETURNING *;`,
         [partTitle, partPath, part.bytes.length, partHash, req.user?.id, doc.doc_type, doc.sender, doc.recipient]
       );
@@ -165,7 +165,7 @@ router.post(
 
     const insertRes = await query(
       `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by)
-       VALUES ($1, $1, $2, $3, 'application/pdf', $4, 'processed', $5)
+       VALUES ($1, $1, $2, $3, 'application/pdf', $4, 'ready', $5)
        RETURNING *;`,
       [mergedTitle, mergedPath, mergedBytes.length, mergedHash, req.user?.id]
     );
@@ -357,50 +357,25 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req: Aut
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const tempPath = req.file.path;
     const originalName = req.file.originalname;
     const mimeType = req.file.mimetype || 'application/pdf';
-    const fileHash = await StorageService.calculateFileHash(tempPath);
+    const requestedKey = req.get('Idempotency-Key');
+    const { document: doc, replayed } = await ingestDocument({
+      stagedPath: req.file.path,
+      source: 'browser',
+      idempotencyKey: requestedKey || crypto.randomUUID(),
+      filename: originalName,
+      mimeType,
+      createdBy: req.user?.id,
+    });
 
-    const targetPath = StorageService.getOriginalFilePath(`${Date.now()}_${originalName}`);
-
-    let isEncrypted = false;
-    let encryptionIv: string | null = null;
-    let encryptionAuthTag: string | null = null;
-
-    if (config.storageEncryptionEnabled) {
-      const result = await encryptFile(tempPath, targetPath);
-      encryptionIv = result.iv;
-      encryptionAuthTag = result.authTag;
-      isEncrypted = true;
-      fs.unlinkSync(tempPath);
-    } else {
-      fs.renameSync(tempPath, targetPath);
+    if (!replayed) {
+      dispatchWebhookEvent('document.created', { id: doc.id, title: doc.title, status: doc.status }).catch((err) =>
+        console.error('Webhook dispatch failed for document.created:', err)
+      );
     }
 
-    const dbResult = await query(
-      `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by, is_encrypted, encryption_iv, encryption_auth_tag)
-       VALUES ($1, $2, $3, $4, $5, $6, 'processing', $7, $8, $9, $10)
-       RETURNING *;`,
-      [originalName, originalName, targetPath, req.file.size, mimeType, fileHash, req.user?.id, isEncrypted, encryptionIv, encryptionAuthTag]
-    );
-
-    const doc = dbResult.rows[0];
-
-    // Audit log
-    await query(`INSERT INTO audit_logs (document_id, user_id, action, details) VALUES ($1, $2, 'upload', $3);`,
-      [doc.id, req.user?.id, JSON.stringify({ filename: originalName, size: req.file.size })]
-    );
-
-    // Queue for OCR & AI
-    await addDocumentProcessingJob(doc.id, targetPath);
-
-    // Fire-and-forget: webhook delivery failures must never fail the upload response.
-    dispatchWebhookEvent('document.created', { id: doc.id, title: doc.title, status: doc.status }).catch((err) =>
-      console.error('Webhook dispatch failed for document.created:', err)
-    );
-
-    return res.status(201).json({ document: doc });
+    return res.status(replayed ? 200 : 201).json({ document: doc, replayed });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

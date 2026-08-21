@@ -55,9 +55,13 @@ export const BatchUploadQueue: React.FC<BatchUploadQueueProps> = ({ onAllComplet
       setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, status: 'uploading' } : i)));
       setActiveUploads((n) => n + 1);
 
-      uploadDocument(item.file, (percent) => {
-        setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, progress: percent } : i)));
-      })
+      uploadDocument(
+        item.file,
+        (percent) => {
+          setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, progress: percent } : i)));
+        },
+        `batch-upload:${item.id}`
+      )
         .then(() => {
           setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, status: 'done', progress: 100 } : i)));
         })

@@ -31,7 +31,7 @@ export async function flushOfflineQueue(): Promise<{ succeeded: number; failed: 
   for (const scan of queued) {
     try {
       const file = new File([scan.blob], scan.filename, { type: scan.blob.type });
-      await uploadDocument(file);
+      await uploadDocument(file, undefined, `offline-scan:${scan.id}`);
       await removeQueuedScan(scan.id);
       succeeded += 1;
     } catch (err) {

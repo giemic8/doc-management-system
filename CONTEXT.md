@@ -16,24 +16,19 @@ DocVault is a self-hosted document management system. It ingests files, preserve
 - **Workflow** — stored trigger, conditions, and actions evaluated around document ingestion.
 - **Audit event** — append-only record of security-sensitive or document-changing action.
 
-## Document lifecycle
+## Ingestion language
 
-```text
-upload / watchfolder / email
-          |
-          v
-      processing
-          |
-          v
- OCR -> metadata -> tags -> chunks -> embeddings
-          |
-          v
-       processed
-```
+- **Ingestion** — acceptance of a document from browser, watchfolder, or email into one canonical lifecycle.
+- **Source identity** — stable source plus idempotency key identifying one delivery. Repeated delivery resolves to same document.
+- **Received** — document record exists, but original bytes are not yet confirmed in durable storage.
+- **Durable** — original bytes are stored successfully and available for processing.
+- **Processing** — document is eligible for, or currently undergoing, OCR and metadata enrichment.
+- **Review** — processing completed but human decision is required before normal use.
+- **Ready** — document completed processing and is available for normal use.
+- **Failed** — ingestion or processing stopped with actionable reason and retry path.
+- **Trashed** — document is excluded from normal use pending retention-aware removal or restoration.
 
-Uploads are written to storage and inserted with `processing` status. Python worker polls PostgreSQL for `pending` or `processing` documents. BullMQ currently receives processing jobs, but worker does not consume that queue; PostgreSQL status remains processing source of truth.
-
-Split and merged PDFs enter database as already `processed`. Archive state is separate from processing status.
+Split and merged PDFs enter lifecycle as **Ready**. Archive state remains separate from ingestion lifecycle.
 
 ## Invariants
 
@@ -61,7 +56,7 @@ Split and merged PDFs enter database as already `processed`. Archive state is se
 
 - PostgreSQL: document state, metadata, permissions, audit, embeddings.
 - Filesystem: originals, derived files, thumbnails, watchfolder.
-- Redis/BullMQ: enqueue signal and rate-limit counters.
+- Redis: rate-limit counters.
 - Ollama or OpenAI: metadata extraction, embeddings, and RAG answers.
 - IMAP: inbound email attachments.
 - Webhooks, iCal, DATEV, and guest shares: outbound/public interfaces.

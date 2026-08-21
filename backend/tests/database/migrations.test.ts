@@ -18,33 +18,42 @@ describe('database migrations', () => {
       client.release();
     }
 
-    await expect(runMigrations()).resolves.toEqual(['1:initial_schema']);
+    await expect(runMigrations()).resolves.toEqual(['1:initial_schema', '2:canonical_ingestion']);
 
     const history = await query(
       'SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version;'
     );
-    expect(history.rows).toHaveLength(1);
+    expect(history.rows).toHaveLength(2);
     expect(history.rows[0]).toMatchObject({ version: 1, name: 'initial_schema' });
-    expect(history.rows[0].checksum).toMatch(/^[a-f0-9]{64}$/);
-    expect(history.rows[0].applied_at).toBeTruthy();
+    expect(history.rows[1]).toMatchObject({ version: 2, name: 'canonical_ingestion' });
+    for (const migration of history.rows) {
+      expect(migration.checksum).toMatch(/^[a-f0-9]{64}$/);
+      expect(migration.applied_at).toBeTruthy();
+    }
 
     const tables = await query<{ tablename: string }>(
       `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;`
     );
     const tableNames = tables.rows.map((row) => row.tablename);
-    expect(tableNames).toHaveLength(21);
+    expect(tableNames).toHaveLength(22);
     expect(tableNames).toEqual(
-      expect.arrayContaining(['documents', 'document_chunks', 'users', 'schema_migrations'])
+      expect.arrayContaining([
+        'documents',
+        'document_chunks',
+        'document_state_transitions',
+        'users',
+        'schema_migrations',
+      ])
     );
 
     const vectorExtension = await query(`SELECT extname FROM pg_extension WHERE extname = 'vector';`);
     expect(vectorExtension.rows).toHaveLength(1);
   });
 
-  it('is idempotent and preserves one migration-history row', async () => {
+  it('is idempotent and preserves migration history', async () => {
     await expect(runMigrations()).resolves.toEqual([]);
     const result = await query('SELECT COUNT(*)::int AS count FROM schema_migrations;');
-    expect(result.rows[0].count).toBe(1);
+    expect(result.rows[0].count).toBe(2);
   });
 
   it('rejects a database migrated by a newer application build', async () => {
@@ -78,7 +87,7 @@ describe('database migrations', () => {
       'Database reset is allowed only when NODE_ENV=development or NODE_ENV=test'
     );
     const result = await query('SELECT COUNT(*)::int AS count FROM schema_migrations;');
-    expect(result.rows[0].count).toBe(1);
+    expect(result.rows[0].count).toBe(2);
   });
 
   it('requires the configured database name before resetting', async () => {
@@ -94,7 +103,10 @@ describe('database migrations', () => {
     const users = await query(`SELECT email, role FROM users WHERE email = 'admin@dms.local';`);
     const tags = await query('SELECT COUNT(*)::int AS count FROM tags;');
 
-    expect(migrations.rows).toEqual([{ version: 1, name: 'initial_schema' }]);
+    expect(migrations.rows).toEqual([
+      { version: 1, name: 'initial_schema' },
+      { version: 2, name: 'canonical_ingestion' },
+    ]);
     expect(users.rows).toEqual([{ email: 'admin@dms.local', role: 'admin' }]);
     expect(tags.rows[0].count).toBe(6);
   });

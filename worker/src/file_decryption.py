@@ -18,7 +18,7 @@ def decrypt_file_to_temp(encrypted_path: str, iv_hex: str, auth_tag_hex: str, ma
     (returned via cipher.getAuthTag()); Python's `cryptography` AESGCM
     expects ciphertext+tag concatenated, so we reconstruct that here.
     """
-    master_key = master_key or os.getenv("MFA_ENCRYPTION_KEY", "change_this_storage_encryption_key_in_prod")
+    master_key = master_key or os.getenv("STORAGE_ENCRYPTION_KEY", "change_this_storage_encryption_key_in_prod")
     key = _derive_key(master_key)
     iv = bytes.fromhex(iv_hex)
     auth_tag = bytes.fromhex(auth_tag_hex)

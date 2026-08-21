@@ -9,13 +9,9 @@ so it can be scaled to multiple replicas:
 docker compose up -d --scale worker=4
 ```
 
-Each replica polls the same `documents` table (`status = 'pending' OR
-'processing'`) independently; because Postgres row visibility means two
-replicas can occasionally pick up the same batch under high concurrency,
-consider adding `FOR UPDATE SKIP LOCKED` to the worker's polling query if
-you scale beyond a couple of replicas in production (not yet applied here
--- flagging as a known follow-up rather than guessing at a fix untested
-against real concurrent load).
+Each replica polls the same `documents` table (`status = 'processing'`).
+`FOR UPDATE SKIP LOCKED` prevents replicas from claiming same document while
+another worker transaction is active.
 
 ## GPU acceleration
 

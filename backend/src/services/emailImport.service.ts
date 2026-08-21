@@ -2,10 +2,11 @@ import { ParsedMail, Attachment } from 'mailparser';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { query } from '../database/db';
-import { StorageService } from './storage.service';
-import { addDocumentProcessingJob } from './queue.service';
-import crypto from 'crypto';
+import { ingestDocument } from './ingestion.service';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import crypto from 'crypto';
 
 const IMPORTABLE_MIME_TYPES = [
   'application/pdf',
@@ -78,18 +79,18 @@ export async function pollMailbox(imapConfig: ImapConfig, importedBy?: string): 
           const attachments = extractImportableAttachments(parsed);
           const senderEmail = parsed.from?.value?.[0]?.address || 'unknown@unknown';
 
-          for (const attachment of attachments) {
-            const fileHash = crypto.createHash('sha256').update(attachment.content).digest('hex');
-            const targetPath = StorageService.getOriginalFilePath(`${Date.now()}_${attachment.filename}`);
-            fs.writeFileSync(targetPath, attachment.content);
-
-            const dbResult = await query(
-              `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, sender, created_by)
-               VALUES ($1, $1, $2, $3, $4, $5, 'processing', $6, $7)
-               RETURNING *;`,
-              [attachment.filename, targetPath, attachment.content.length, attachment.contentType, fileHash, senderEmail, importedBy || null]
-            );
-            const doc = dbResult.rows[0];
+          for (const [attachmentIndex, attachment] of attachments.entries()) {
+            const stagedPath = path.join(os.tmpdir(), `email-${crypto.randomUUID()}`);
+            await fs.promises.writeFile(stagedPath, attachment.content);
+            const { document: doc, replayed } = await ingestDocument({
+              stagedPath,
+              source: 'email',
+              idempotencyKey: `${imapConfig.user}:${uid}:${attachmentIndex}`,
+              filename: attachment.filename,
+              mimeType: attachment.contentType,
+              sender: senderEmail,
+              createdBy: importedBy,
+            });
 
             await query(`INSERT INTO tags (name) VALUES ('Source: Email') ON CONFLICT (name) DO NOTHING;`);
             await query(
@@ -97,8 +98,7 @@ export async function pollMailbox(imapConfig: ImapConfig, importedBy?: string): 
               [doc.id]
             );
 
-            await addDocumentProcessingJob(doc.id, targetPath);
-            result.documentsImported++;
+            if (!replayed) result.documentsImported++;
           }
 
           // Mark seen and move to Archived so it isn't re-imported.
