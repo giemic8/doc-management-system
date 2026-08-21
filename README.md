@@ -2,6 +2,8 @@
 
 > A production-grade, self-hosted Document Management System built for complete document control, automated OCR, AI-driven metadata extraction, revision safety, and smartphone scanning.
 
+Operational recovery: [backup and clean-host restore guide](docs/operations/backup-recovery.md).
+
 ---
 
 ## Key Features
