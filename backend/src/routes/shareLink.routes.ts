@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { query } from '../database/db';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
+import { requireDocumentPermission } from '../middleware/documentAcl';
 import { createDecryptStream } from '../services/fileEncryption.service';
 import { checkRateLimit } from '../services/rateLimit.service';
 import {
@@ -24,7 +25,11 @@ const DEFAULT_EXPIRES_IN_DAYS = 7;
 export const shareLinkRouter = Router();
 
 // POST /api/documents/:id/share-links (create a new guest share link)
-shareLinkRouter.post('/:id/share-links', authenticateToken, async (req: AuthRequest, res: Response) => {
+shareLinkRouter.post(
+  '/:id/share-links',
+  authenticateToken,
+  requireDocumentPermission('write', (req) => req.params.id, 'create_share_link'),
+  async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { password, expiresInDays, maxDownloads } = req.body ?? {};
 
@@ -54,6 +59,11 @@ shareLinkRouter.post('/:id/share-links', authenticateToken, async (req: AuthRequ
     );
 
     const row = result.rows[0];
+    await query(
+      `INSERT INTO audit_logs (document_id, user_id, action, details, ip_address)
+       VALUES ($1, $2, 'share_link_created', $3, $4);`,
+      [id, req.user?.id, JSON.stringify({ shareLinkId: row.id }), req.ip ?? null]
+    );
     // The raw token is only ever returned here, at creation time — the
     // creating user distributes it themselves. Unlike calendar feed
     // tokens, re-exposure isn't avoided elsewhere because this token is
@@ -68,10 +78,15 @@ shareLinkRouter.post('/:id/share-links', authenticateToken, async (req: AuthRequ
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
-});
+  }
+);
 
 // GET /api/documents/:id/share-links (list active share links; never returns password_hash or the raw token)
-shareLinkRouter.get('/:id/share-links', authenticateToken, async (req: AuthRequest, res: Response) => {
+shareLinkRouter.get(
+  '/:id/share-links',
+  authenticateToken,
+  requireDocumentPermission('read', (req) => req.params.id, 'list_share_links'),
+  async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   try {
     const result = await query(
@@ -85,10 +100,15 @@ shareLinkRouter.get('/:id/share-links', authenticateToken, async (req: AuthReque
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
-});
+  }
+);
 
 // DELETE /api/documents/:id/share-links/:linkId (revoke)
-shareLinkRouter.delete('/:id/share-links/:linkId', authenticateToken, async (req: AuthRequest, res: Response) => {
+shareLinkRouter.delete(
+  '/:id/share-links/:linkId',
+  authenticateToken,
+  requireDocumentPermission('write', (req) => req.params.id, 'revoke_share_link'),
+  async (req: AuthRequest, res: Response) => {
   const { id, linkId } = req.params;
   try {
     const result = await query(
@@ -100,11 +120,17 @@ shareLinkRouter.delete('/:id/share-links/:linkId', authenticateToken, async (req
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Share link not found or already revoked' });
     }
+    await query(
+      `INSERT INTO audit_logs (document_id, user_id, action, details, ip_address)
+       VALUES ($1, $2, 'share_link_revoked', $3, $4);`,
+      [id, req.user?.id, JSON.stringify({ shareLinkId: linkId }), req.ip ?? null]
+    );
     return res.json({ revoked: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
-});
+  }
+);
 
 /**
  * Public routes, mounted at /api/share — NO authenticateToken, since guests
@@ -156,6 +182,8 @@ publicShareRouter.get('/:token/info', async (req: Request, res: Response) => {
         reason: validity.reason,
       });
     }
+
+    await logGuestAccess(link.document_id, 'guest_share_info_access', link.id, req);
 
     return res.json({
       documentTitle: link.document_title,

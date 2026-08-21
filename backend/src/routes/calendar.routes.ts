@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { query } from '../database/db';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import { buildIcsFeed, DocumentForFeed } from '../services/icalFeed.service';
+import { buildDocumentAclWhereClause } from '../services/acl.service';
 
 const router = Router();
 
@@ -28,6 +29,11 @@ router.post('/feed-token', authenticateToken, async (req: AuthRequest, res: Resp
 
     const token = crypto.randomBytes(32).toString('hex');
     await query(`INSERT INTO calendar_feed_tokens (user_id, token) VALUES ($1, $2);`, [userId, token]);
+    await query(
+      `INSERT INTO audit_logs (user_id, action, details, ip_address)
+       VALUES ($1, 'calendar_feed_token_rotated', $2, $3);`,
+      [userId, JSON.stringify({ rotated: true }), req.ip ?? null]
+    );
 
     return res.status(201).json({ feedUrl: `/api/calendar/feed.ics?token=${token}` });
   } catch (err: any) {
@@ -71,7 +77,10 @@ router.get('/feed.ics', async (req: Request, res: Response) => {
     }
 
     const tokenResult = await query(
-      `SELECT user_id FROM calendar_feed_tokens WHERE token = $1 AND revoked_at IS NULL LIMIT 1;`,
+      `SELECT cft.user_id, u.role
+       FROM calendar_feed_tokens cft
+       JOIN users u ON u.id = cft.user_id
+       WHERE cft.token = $1 AND cft.revoked_at IS NULL LIMIT 1;`,
       [token]
     );
     if (tokenResult.rows.length === 0) {
@@ -79,17 +88,21 @@ router.get('/feed.ics', async (req: Request, res: Response) => {
     }
 
     const userId = tokenResult.rows[0].user_id;
+    const userRole = tokenResult.rows[0].role;
+    const params: any[] = [];
+    const aclClause = buildDocumentAclWhereClause({ userId, role: userRole }, params);
 
     // Include documents with a due_date (payment due dates for invoices,
     // and — per the schema note in icalFeed.service.ts — notice-period
     // deadlines for contract-type documents, since there's no dedicated
     // column for that yet).
     const docsResult = await query(
-      `SELECT id, title, doc_type, sender, due_date, amount, currency
-       FROM documents
-       WHERE is_archived = FALSE AND due_date IS NOT NULL AND created_by = $1
+      `SELECT d.id, d.title, d.doc_type, d.sender, d.due_date, d.amount, d.currency
+       FROM documents d
+       WHERE d.is_archived = FALSE AND d.due_date IS NOT NULL
+       ${aclClause ? `AND ${aclClause}` : ''}
        ORDER BY due_date ASC;`,
-      [userId]
+      params
     );
 
     const documents: DocumentForFeed[] = docsResult.rows;

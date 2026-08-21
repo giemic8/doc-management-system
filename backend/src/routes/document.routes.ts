@@ -16,6 +16,7 @@ import { buildSepaEpcPayload } from '../services/sepaQr.service';
 import QRCode from 'qrcode';
 import { config } from '../config';
 import { buildDocumentAclWhereClause, canUserAccessDocument, canUserModifyDocument, canUserDeleteDocument, logUnauthorizedAccess } from '../services/acl.service';
+import { requireDocumentPermission } from '../middleware/documentAcl';
 
 const router = Router();
 const upload = multer({ dest: path.join(__dirname, '../../../storage/tmp') });
@@ -73,7 +74,11 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 });
 
 // POST /api/documents/:id/split
-router.post('/:id/split', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.post(
+  '/:id/split',
+  authenticateToken,
+  requireDocumentPermission('write', (req) => req.params.id, 'split_document'),
+  async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { splitAtPage } = req.body;
 
@@ -129,10 +134,15 @@ router.post('/:id/split', authenticateToken, async (req: AuthRequest, res: Respo
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
-});
+  }
+);
 
 // POST /api/documents/merge (must be registered before /:id routes)
-router.post('/merge', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.post(
+  '/merge',
+  authenticateToken,
+  requireDocumentPermission('write', (req) => req.body?.documentIds, 'merge_documents'),
+  async (req: AuthRequest, res: Response) => {
   const { documentIds } = req.body;
   if (!Array.isArray(documentIds) || documentIds.length < 2) {
     return res.status(400).json({ error: 'documentIds must be an array of at least two document ids' });
@@ -170,10 +180,15 @@ router.post('/merge', authenticateToken, async (req: AuthRequest, res: Response)
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
-});
+  }
+);
 
 // POST /api/documents/bulk/tag (must be registered before /:id routes)
-router.post('/bulk/tag', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.post(
+  '/bulk/tag',
+  authenticateToken,
+  requireDocumentPermission('write', (req) => req.body?.documentIds, 'bulk_tag'),
+  async (req: AuthRequest, res: Response) => {
   const { documentIds, tagId } = req.body;
   if (!Array.isArray(documentIds) || documentIds.length === 0 || !tagId) {
     return res.status(400).json({ error: 'documentIds (non-empty array) and tagId are required' });
@@ -188,14 +203,25 @@ router.post('/bulk/tag', authenticateToken, async (req: AuthRequest, res: Respon
       );
       if (result.rows.length > 0) updated++;
     }
+    await query(
+      `INSERT INTO audit_logs (document_id, user_id, action, details)
+       SELECT id, $2, 'bulk_tag', jsonb_build_object('tagId', $3::text)
+       FROM documents WHERE id = ANY($1::uuid[]);`,
+      [documentIds, req.user?.id, tagId]
+    );
     return res.json({ updated });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
-});
+  }
+);
 
 // POST /api/documents/bulk/doc-type
-router.post('/bulk/doc-type', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.post(
+  '/bulk/doc-type',
+  authenticateToken,
+  requireDocumentPermission('write', (req) => req.body?.documentIds, 'bulk_doc_type'),
+  async (req: AuthRequest, res: Response) => {
   const { documentIds, docType } = req.body;
   if (!Array.isArray(documentIds) || documentIds.length === 0 || !docType) {
     return res.status(400).json({ error: 'documentIds (non-empty array) and docType are required' });
@@ -206,11 +232,18 @@ router.post('/bulk/doc-type', authenticateToken, async (req: AuthRequest, res: R
       `UPDATE documents SET doc_type = $1, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($2::uuid[]) RETURNING id;`,
       [docType, documentIds]
     );
+    await query(
+      `INSERT INTO audit_logs (document_id, user_id, action, details)
+       SELECT id, $2, 'bulk_doc_type', jsonb_build_object('docType', $3::text)
+       FROM documents WHERE id = ANY($1::uuid[]);`,
+      [documentIds, req.user?.id, docType]
+    );
     return res.json({ updated: result.rows.length });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
-});
+  }
+);
 
 // POST /api/documents/bulk/delete
 router.post('/bulk/delete', authenticateToken, async (req: AuthRequest, res: Response) => {
@@ -419,7 +452,11 @@ router.get('/:id/file', authenticateToken, async (req: AuthRequest, res: Respons
 });
 
 // GET /api/documents/:id/sepa-qr?iban=...&bic=...&amount=... (SEPA EPC-QR for banking apps)
-router.get('/:id/sepa-qr', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.get(
+  '/:id/sepa-qr',
+  authenticateToken,
+  requireDocumentPermission('read', (req) => req.params.id, 'generate_sepa_qr'),
+  async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { iban, bic, amount: amountOverride } = req.query;
 
@@ -452,7 +489,8 @@ router.get('/:id/sepa-qr', authenticateToken, async (req: AuthRequest, res: Resp
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
-});
+  }
+);
 
 // PUT /api/documents/:id (Update metadata)
 router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
@@ -512,7 +550,11 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
 });
 
 // PUT /api/documents/:id/custom-fields (validate against the doc_type's schema, then save)
-router.put('/:id/custom-fields', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.put(
+  '/:id/custom-fields',
+  authenticateToken,
+  requireDocumentPermission('write', (req) => req.params.id, 'update_custom_fields'),
+  async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { values } = req.body;
 
@@ -560,10 +602,15 @@ router.put('/:id/custom-fields', authenticateToken, async (req: AuthRequest, res
       );
     }
 
+    await query(
+      `INSERT INTO audit_logs (document_id, user_id, action, details) VALUES ($1, $2, 'update_custom_fields', $3);`,
+      [id, req.user?.id, JSON.stringify({ fieldIds: Object.keys(values) })]
+    );
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
-});
+  }
+);
 
 export default router;

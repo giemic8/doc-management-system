@@ -11,6 +11,13 @@ import { AuthRequest, authenticateToken, requireRole } from '../middleware/auth'
  */
 const router = Router();
 
+async function auditAclChange(req: AuthRequest, action: string, details: Record<string, unknown>) {
+  await query(
+    `INSERT INTO audit_logs (user_id, action, details, ip_address) VALUES ($1, $2, $3, $4);`,
+    [req.user?.id, action, JSON.stringify(details), req.ip ?? null]
+  );
+}
+
 // GET /api/access-groups (list all groups with member + granted-tag counts)
 router.get('/', authenticateToken, requireRole(['admin']), async (_req: AuthRequest, res: Response) => {
   try {
@@ -38,6 +45,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req: AuthRequ
   }
   try {
     const result = await query(`INSERT INTO access_groups (name) VALUES ($1) RETURNING *;`, [name.trim()]);
+    await auditAclChange(req, 'access_group_created', { groupId: result.rows[0].id, name: result.rows[0].name });
     return res.status(201).json({ group: result.rows[0] });
   } catch (err: any) {
     if (err.code === '23505') {
@@ -54,6 +62,7 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req: Aut
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Group not found' });
     }
+    await auditAclChange(req, 'access_group_deleted', { groupId: req.params.id });
     return res.json({ deleted: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -91,6 +100,7 @@ router.put('/:id/members', authenticateToken, requireRole(['admin']), async (req
         [userId, req.params.id]
       );
     }
+    await auditAclChange(req, 'access_group_members_replaced', { groupId: req.params.id, userIds });
     return res.json({ updated: true, memberCount: userIds.length });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -129,6 +139,13 @@ router.put(
          RETURNING *;`,
         [req.params.id, req.params.tagId, !!canRead, !!canWrite, !!canDelete]
       );
+      await auditAclChange(req, 'access_group_permission_updated', {
+        groupId: req.params.id,
+        tagId: req.params.tagId,
+        canRead: !!canRead,
+        canWrite: !!canWrite,
+        canDelete: !!canDelete,
+      });
       return res.json({ permission: result.rows[0] });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -147,6 +164,10 @@ router.delete(
         req.params.id,
         req.params.tagId,
       ]);
+      await auditAclChange(req, 'access_group_permission_revoked', {
+        groupId: req.params.id,
+        tagId: req.params.tagId,
+      });
       return res.json({ deleted: true });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });

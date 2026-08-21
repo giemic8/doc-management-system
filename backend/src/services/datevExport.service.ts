@@ -76,19 +76,32 @@ export function buildDatevExportZip(destPath: string, documents: DatevExportDocu
     const output = fs.createWriteStream(destPath);
     const archive = archiver('zip', { zlib: { level: 9 } });
     const tempFiles: string[] = [];
+    let settled = false;
+
+    const cleanupTempFiles = () => {
+      for (const tmp of tempFiles) {
+        fs.rmSync(tmp, { force: true });
+      }
+    };
+
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      archive.abort();
+      output.destroy();
+      cleanupTempFiles();
+      fs.rmSync(destPath, { force: true });
+      reject(err);
+    };
 
     output.on('close', () => {
-      for (const tmp of tempFiles) {
-        fs.unlink(tmp, () => {});
-      }
+      if (settled) return;
+      settled = true;
+      cleanupTempFiles();
       resolve();
     });
-    archive.on('error', (err) => {
-      for (const tmp of tempFiles) {
-        fs.unlink(tmp, () => {});
-      }
-      reject(err);
-    });
+    output.on('error', fail);
+    archive.on('error', fail);
     archive.pipe(output);
 
     const csv = buildDatevCsv(documents);
@@ -100,15 +113,11 @@ export function buildDatevExportZip(destPath: string, documents: DatevExportDocu
 
         if (doc.is_encrypted && doc.encryption_iv && doc.encryption_auth_tag) {
           const tmpPath = path.join(os.tmpdir(), `datev-decrypt-${crypto.randomUUID()}.pdf`);
-          try {
-            await decryptFile(doc.file_path, tmpPath, doc.encryption_iv, doc.encryption_auth_tag);
-            tempFiles.push(tmpPath);
-            archive.file(tmpPath, { name: `documents/${doc.original_filename}` });
-          } catch (err) {
-            // Skip documents that fail to decrypt rather than failing the
-            // whole export.
-            continue;
-          }
+          // Register before decryption: AES-GCM authentication fails only
+          // after streaming and can otherwise leave a partial plaintext file.
+          tempFiles.push(tmpPath);
+          await decryptFile(doc.file_path, tmpPath, doc.encryption_iv, doc.encryption_auth_tag);
+          archive.file(tmpPath, { name: `documents/${doc.original_filename}` });
         } else {
           archive.file(doc.file_path, { name: `documents/${doc.original_filename}` });
         }
@@ -117,6 +126,6 @@ export function buildDatevExportZip(destPath: string, documents: DatevExportDocu
       archive.finalize();
     };
 
-    addFiles().catch(reject);
+    addFiles().catch(fail);
   });
 }

@@ -3,6 +3,8 @@ import { query } from '../database/db';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import { deriveContractStatus } from '../services/contractWatcher.service';
 import { buildCancellationLetterPdf } from '../services/cancellationLetter.service';
+import { buildDocumentAclWhereClause } from '../services/acl.service';
+import { requireDocumentPermission } from '../middleware/documentAcl';
 
 const router = Router();
 
@@ -15,15 +17,18 @@ const CONTRACT_DOC_TYPES = ['Vertrag'];
 // Optional ?status=active|notice_deadline_nearing|expired filter.
 router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
+    const params: any[] = [CONTRACT_DOC_TYPES];
+    const aclClause = buildDocumentAclWhereClause({ userId: req.user!.id, role: req.user!.role }, params);
     const result = await query(
       `SELECT d.id AS document_id, d.title, d.sender, d.document_date, d.due_date,
               cd.customer_number, cd.vendor_address, cd.notice_period_days,
               cd.cancellation_deadline, cd.contract_end_date, cd.alert_sent_at
        FROM documents d
        LEFT JOIN contract_details cd ON cd.document_id = d.id
-       WHERE d.doc_type = ANY($1::text[])
+       WHERE d.doc_type = ANY($1::text[]) AND d.is_archived = FALSE
+       ${aclClause ? `AND ${aclClause}` : ''}
        ORDER BY d.created_at DESC;`,
-      [CONTRACT_DOC_TYPES]
+      params
     );
 
     let contracts = result.rows.map((row: any) => ({
@@ -43,7 +48,11 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 });
 
 // PUT /api/contracts/:documentId/details — upsert contract_details for a document.
-router.put('/:documentId/details', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.put(
+  '/:documentId/details',
+  authenticateToken,
+  requireDocumentPermission('write', (req) => req.params.documentId, 'update_contract_details'),
+  async (req: AuthRequest, res: Response) => {
   const { documentId } = req.params;
   const { customer_number, vendor_address, notice_period_days, contract_end_date } = req.body;
 
@@ -75,15 +84,25 @@ router.put('/:documentId/details', authenticateToken, async (req: AuthRequest, r
       [documentId, customer_number ?? null, vendor_address ?? null, effectiveNoticePeriodDays, contract_end_date ?? null, cancellationDeadline]
     );
 
+    await query(
+      `INSERT INTO audit_logs (document_id, user_id, action, details, ip_address)
+       VALUES ($1, $2, 'update_contract_details', $3, $4);`,
+      [documentId, req.user?.id, JSON.stringify(req.body), req.ip ?? null]
+    );
     return res.json({ contract_details: result.rows[0] });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
-});
+  }
+);
 
 // GET /api/contracts/:documentId/cancellation-letter — generates a 1-click
 // formal cancellation letter PDF for the given contract document.
-router.get('/:documentId/cancellation-letter', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.get(
+  '/:documentId/cancellation-letter',
+  authenticateToken,
+  requireDocumentPermission('read', (req) => req.params.documentId, 'generate_cancellation_letter'),
+  async (req: AuthRequest, res: Response) => {
   const { documentId } = req.params;
 
   try {
@@ -116,6 +135,7 @@ router.get('/:documentId/cancellation-letter', authenticateToken, async (req: Au
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
-});
+  }
+);
 
 export default router;

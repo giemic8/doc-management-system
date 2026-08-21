@@ -7,6 +7,7 @@ import {
   detectRecurringSubscriptions,
   AnalyticsDoc,
 } from '../services/analytics.service';
+import { buildDocumentAclWhereClause } from '../services/acl.service';
 
 const router = Router();
 
@@ -46,6 +47,11 @@ router.get('/summary', authenticateToken, async (req: AuthRequest, res: Response
     if (currency) {
       params.push(currency);
       queryText += ` AND d.currency = $${params.length}`;
+    }
+
+    const aclClause = buildDocumentAclWhereClause({ userId: req.user!.id, role: req.user!.role }, params);
+    if (aclClause) {
+      queryText += ` AND ${aclClause}`;
     }
 
     const result = await query(queryText, params);
