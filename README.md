@@ -62,10 +62,19 @@
    ```bash
    docker compose up -d --build
    ```
-4. Access the web application:
+4. Create the first administrator without storing its password in the repository:
+   ```bash
+   export ADMIN_EMAIL=you@example.com
+   read -s ADMIN_PASSWORD && export ADMIN_PASSWORD
+   docker compose exec -e ADMIN_EMAIL -e ADMIN_PASSWORD backend node dist/scripts/createAdmin.js
+   unset ADMIN_EMAIL ADMIN_PASSWORD
+   ```
+5. Access the web application:
    - **Frontend UI**: [http://localhost:3000](http://localhost:3000)
    - **API Gateway**: [http://localhost:4000/api/health](http://localhost:4000/api/health)
-   - **Default Admin**: `admin@dms.local` / `admin123`
+
+Production startup never creates a default administrator. Development and test resets seed
+`admin@dms.local` / `admin123` only outside production.
 
 ---
 
@@ -93,6 +102,12 @@ doc-management-system/
     │   ├── components/      # DocumentList, PDFViewer, MobileScanner, WorkflowEditor
     │   └── services/        # API client
 ```
+
+---
+
+## AI-assisted Development
+
+Coding agents should start with [`AGENTS.md`](AGENTS.md) and [`CONTEXT.md`](CONTEXT.md). Build, test, change-routing, and cross-cutting security guidance lives in [`docs/agents/development.md`](docs/agents/development.md). Approved product work is ordered in [`docs/roadmap/family-production-readiness.md`](docs/roadmap/family-production-readiness.md).
 
 ---
 
