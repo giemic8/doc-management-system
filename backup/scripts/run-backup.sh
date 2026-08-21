@@ -1,146 +1,156 @@
 #!/usr/bin/env bash
-#
-# run-backup.sh — Daily encrypted offsite backup job (Ticket #17).
-#
-# What it does, step by step:
-#   1. pg_dump the app database, piped through gzip -> db-<ts>.sql.gz
-#   2. tar+gzip the document originals directory ($STORAGE_PATH) -> storage-<ts>.tar.gz
-#   3. GPG-symmetric-encrypt (AES-256) both artifacts -> *.gpg, then delete the
-#      unencrypted intermediates so nothing plaintext-sensitive lingers on disk.
-#   4. rclone copy the *.gpg files to the configured offsite remote. rclone
-#      itself is provider-agnostic (S3, Wasabi, Hetzner Storage Box, MinIO, ...);
-#      the actual provider + credentials live in a mounted rclone.conf (see
-#      backup/rclone.conf.example), NOT in this script or in env vars we control.
-#   5. Write /backups/last-backup-status.json with a summary the backend API
-#      (GET /api/backup/status) reads to power the admin dashboard.
-#
-# Required env vars:
-#   DATABASE_URL            postgres connection string consumed by pg_dump
-#   STORAGE_PATH            directory containing document originals to archive
-#   BACKUP_ENCRYPTION_KEY   GPG symmetric passphrase (AES-256)
-#   RCLONE_REMOTE           rclone remote path, e.g. "myS3remote:docvault-backups/"
-#                           (leave empty to skip the offsite upload step, useful
-#                           for local dev/testing without real cloud credentials)
-#
-# Exits non-zero on any failure so `docker logs` / orchestration can alert.
 
-set -euo pipefail
+# Creates encrypted database, storage, and verification-manifest artifacts.
+# Run acknowledged only after primary and replica copies match. Offsite upload
+# can be mandatory in production with REQUIRE_OFFSITE_BACKUP=true.
 
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_DIR="${BACKUP_DIR:-/backups}"
-STATUS_FILE="${BACKUP_DIR}/last-backup-status.json"
-TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+PRIMARY_DIR="${BACKUP_PRIMARY_DIR:-${BACKUP_DIR}/primary}"
+REPLICA_DIR="${BACKUP_REPLICA_DIR:-/backups-replica}"
+TIMESTAMP="$(date -u +%Y%m%d-%H%M%S)"
+BACKUP_ID="${BACKUP_ID:-${TIMESTAMP}}"
+WORK_DIR="$(mktemp -d /tmp/docvault-backup.XXXXXX)"
+CURRENT_STAGE="created"
+PASSPHRASE_FILE="${WORK_DIR}/gpg-passphrase"
 
-DB_DUMP_FILE="${BACKUP_DIR}/db-${TIMESTAMP}.sql.gz"
-STORAGE_ARCHIVE_FILE="${BACKUP_DIR}/storage-${TIMESTAMP}.tar.gz"
-
-mkdir -p "${BACKUP_DIR}"
+# shellcheck source=status-lib.sh
+source "${SCRIPT_DIR}/status-lib.sh"
 
 log() {
-  echo "[run-backup] $(date -u +'%Y-%m-%dT%H:%M:%SZ') - $*"
+  echo "[run-backup] $(status_now) - $*"
 }
 
-# Writes the JSON status file read by the backend's /api/backup/status route.
-# Called both on success and (via the ERR trap below) on failure.
-write_status() {
-  local success="$1"
-  local error_message="${2:-}"
-  local db_size=0
-  local storage_size=0
-
-  if [ -f "${DB_DUMP_FILE}.gpg" ]; then
-    db_size=$(stat -c%s "${DB_DUMP_FILE}.gpg" 2>/dev/null || stat -f%z "${DB_DUMP_FILE}.gpg" 2>/dev/null || echo 0)
-  fi
-  if [ -f "${STORAGE_ARCHIVE_FILE}.gpg" ]; then
-    storage_size=$(stat -c%s "${STORAGE_ARCHIVE_FILE}.gpg" 2>/dev/null || stat -f%z "${STORAGE_ARCHIVE_FILE}.gpg" 2>/dev/null || echo 0)
-  fi
-
-  # Minimal hand-rolled JSON (no jq dependency) — fields match backend's
-  # BackupStatus shape in backend/src/services/backupStatus.service.ts.
-  if [ -n "${error_message}" ]; then
-    cat > "${STATUS_FILE}" <<EOF
-{
-  "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
-  "dbBackupSizeBytes": ${db_size},
-  "storageBackupSizeBytes": ${storage_size},
-  "success": ${success},
-  "error": "$(echo "${error_message}" | sed 's/"/\\"/g')"
-}
-EOF
-  else
-    cat > "${STATUS_FILE}" <<EOF
-{
-  "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
-  "dbBackupSizeBytes": ${db_size},
-  "storageBackupSizeBytes": ${storage_size},
-  "success": ${success}
-}
-EOF
-  fi
+cleanup() {
+  rm -rf "${WORK_DIR}"
 }
 
 on_error() {
   local exit_code=$?
-  log "ERROR: backup failed with exit code ${exit_code}"
-  write_status "false" "Backup failed with exit code ${exit_code}. See container logs for details."
-  # Best-effort cleanup of any half-written intermediates.
-  rm -f "${DB_DUMP_FILE}" "${STORAGE_ARCHIVE_FILE}" 2>/dev/null || true
+  trap - ERR
+  local message="Backup failed during ${CURRENT_STAGE}; inspect backup service logs"
+  log "ERROR: ${message}"
+  if [ -f "${STATUS_FILE}" ]; then
+    status_set_stage "${CURRENT_STAGE}" failed "${message}" || true
+    status_mark_failure "${message}" || true
+    "${SCRIPT_DIR}/notify-failure.sh" "DocVault backup failed" "${message}" || true
+  fi
   exit "${exit_code}"
 }
+trap cleanup EXIT
 trap on_error ERR
 
-if [ -z "${DATABASE_URL:-}" ]; then
-  log "ERROR: DATABASE_URL is not set"
-  exit 1
-fi
-if [ -z "${STORAGE_PATH:-}" ]; then
-  log "ERROR: STORAGE_PATH is not set"
-  exit 1
-fi
-if [ -z "${BACKUP_ENCRYPTION_KEY:-}" ]; then
-  log "ERROR: BACKUP_ENCRYPTION_KEY is not set"
-  exit 1
+mkdir -p "${PRIMARY_DIR}"
+status_init "${BACKUP_ID}"
+
+if [[ ! "${BACKUP_ID}" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  echo "ERROR: BACKUP_ID may contain only letters, numbers, underscore, and hyphen" >&2
+  false
 fi
 
-log "Starting backup run ${TIMESTAMP}"
-
-# --- Step 1: Database dump ---------------------------------------------
-log "Dumping PostgreSQL database via pg_dump..."
-pg_dump "${DATABASE_URL}" | gzip > "${DB_DUMP_FILE}"
-log "Database dump written to ${DB_DUMP_FILE}"
-
-# --- Step 2: Storage archive ---------------------------------------------
-log "Archiving document storage directory (${STORAGE_PATH})..."
-if [ -d "${STORAGE_PATH}" ]; then
-  tar -czf "${STORAGE_ARCHIVE_FILE}" -C "$(dirname "${STORAGE_PATH}")" "$(basename "${STORAGE_PATH}")"
-  log "Storage archive written to ${STORAGE_ARCHIVE_FILE}"
-else
-  log "WARNING: STORAGE_PATH (${STORAGE_PATH}) does not exist, creating empty placeholder archive"
-  tar -czf "${STORAGE_ARCHIVE_FILE}" --files-from=/dev/null
+for required in DATABASE_URL STORAGE_PATH BACKUP_ENCRYPTION_KEY; do
+  if [ -z "${!required:-}" ]; then
+    echo "ERROR: ${required} is not set" >&2
+    false
+  fi
+done
+if [ "${PRIMARY_DIR}" = "${REPLICA_DIR}" ]; then
+  echo "ERROR: backup primary and replica directories must differ" >&2
+  false
 fi
 
-# --- Step 3: Encrypt both artifacts with GPG symmetric AES-256 -----------
-log "Encrypting database dump with GPG (AES-256)..."
-gpg --batch --yes --passphrase "${BACKUP_ENCRYPTION_KEY}" --cipher-algo AES256 --symmetric \
-  --output "${DB_DUMP_FILE}.gpg" "${DB_DUMP_FILE}"
-rm -f "${DB_DUMP_FILE}"
+mkdir -p "${REPLICA_DIR}"
+printf '%s' "${BACKUP_ENCRYPTION_KEY}" > "${PASSPHRASE_FILE}"
+chmod 600 "${PASSPHRASE_FILE}"
 
-log "Encrypting storage archive with GPG (AES-256)..."
-gpg --batch --yes --passphrase "${BACKUP_ENCRYPTION_KEY}" --cipher-algo AES256 --symmetric \
-  --output "${STORAGE_ARCHIVE_FILE}.gpg" "${STORAGE_ARCHIVE_FILE}"
-rm -f "${STORAGE_ARCHIVE_FILE}"
+DB_FILE="db-${BACKUP_ID}.sql.gz"
+STORAGE_FILE="storage-${BACKUP_ID}.tar.gz"
+MANIFEST_FILE="manifest-${BACKUP_ID}.json"
 
-log "Encrypted artifacts: ${DB_DUMP_FILE}.gpg, ${STORAGE_ARCHIVE_FILE}.gpg"
+log "Creating database dump, storage archive, and restore manifest."
+pg_dump "${DATABASE_URL}" | gzip > "${WORK_DIR}/${DB_FILE}"
+tar -czf "${WORK_DIR}/${STORAGE_FILE}" -C "$(dirname "${STORAGE_PATH}")" "$(basename "${STORAGE_PATH}")"
 
-# --- Step 4: Offsite sync via rclone --------------------------------------
+DB_SHA256="$(sha256sum "${WORK_DIR}/${DB_FILE}" | awk '{print $1}')"
+STORAGE_SHA256="$(sha256sum "${WORK_DIR}/${STORAGE_FILE}" | awk '{print $1}')"
+SAMPLES_FILE="${WORK_DIR}/samples.json"
+printf '[]\n' > "${SAMPLES_FILE}"
+
+sample_count=0
+while IFS= read -r -d '' original; do
+  relative_path="${original#"${STORAGE_PATH}"/}"
+  original_sha256="$(sha256sum "${original}" | awk '{print $1}')"
+  jq --arg path "${relative_path}" --arg sha256 "${original_sha256}" \
+    '. + [{path: $path, sha256: $sha256}]' "${SAMPLES_FILE}" > "${SAMPLES_FILE}.tmp"
+  mv "${SAMPLES_FILE}.tmp" "${SAMPLES_FILE}"
+  sample_count=$((sample_count + 1))
+  if [ "${sample_count}" -ge "${RESTORE_SAMPLE_SIZE:-25}" ]; then
+    break
+  fi
+done < <(find "${STORAGE_PATH}/originals" -type f -print0 2>/dev/null | sort -z)
+
+jq -n \
+  --arg backup_id "${BACKUP_ID}" \
+  --arg created_at "$(status_now)" \
+  --arg db_file "${DB_FILE}" \
+  --arg db_sha256 "${DB_SHA256}" \
+  --arg storage_file "${STORAGE_FILE}" \
+  --arg storage_sha256 "${STORAGE_SHA256}" \
+  --slurpfile samples "${SAMPLES_FILE}" \
+  '{version: 1, backupId: $backup_id, createdAt: $created_at, database: {file: $db_file, sha256: $db_sha256}, storage: {file: $storage_file, sha256: $storage_sha256}, sampledOriginals: $samples[0]}' \
+  > "${WORK_DIR}/${MANIFEST_FILE}"
+
+for artifact in "${DB_FILE}" "${STORAGE_FILE}" "${MANIFEST_FILE}"; do
+  gpg --batch --yes --pinentry-mode loopback --passphrase-file "${PASSPHRASE_FILE}" \
+    --cipher-algo AES256 --symmetric --output "${PRIMARY_DIR}/${artifact}.gpg" "${WORK_DIR}/${artifact}"
+done
+
+db_size="$(stat -c%s "${PRIMARY_DIR}/${DB_FILE}.gpg")"
+storage_size="$(stat -c%s "${PRIMARY_DIR}/${STORAGE_FILE}.gpg")"
+status_set_sizes "${db_size}" "${storage_size}"
+status_set_stage created succeeded "Encrypted artifacts created"
+
+CURRENT_STAGE="replicated"
+log "Copying encrypted artifacts to independent local replica."
+for artifact in "${DB_FILE}.gpg" "${STORAGE_FILE}.gpg" "${MANIFEST_FILE}.gpg"; do
+  cp "${PRIMARY_DIR}/${artifact}" "${REPLICA_DIR}/${artifact}"
+  primary_hash="$(sha256sum "${PRIMARY_DIR}/${artifact}" | awk '{print $1}')"
+  replica_hash="$(sha256sum "${REPLICA_DIR}/${artifact}" | awk '{print $1}')"
+  [ "${primary_hash}" = "${replica_hash}" ]
+done
+status_set_stage replicated succeeded "Replica hashes match"
+
+CURRENT_STAGE="uploaded"
 if [ -n "${RCLONE_REMOTE:-}" ]; then
-  log "Uploading encrypted artifacts offsite via rclone to ${RCLONE_REMOTE}..."
-  rclone copy "${DB_DUMP_FILE}.gpg" "${RCLONE_REMOTE}"
-  rclone copy "${STORAGE_ARCHIVE_FILE}.gpg" "${RCLONE_REMOTE}"
-  log "Offsite upload complete."
+  log "Uploading encrypted artifacts offsite."
+  for artifact in "${DB_FILE}.gpg" "${STORAGE_FILE}.gpg" "${MANIFEST_FILE}.gpg"; do
+    rclone copyto "${PRIMARY_DIR}/${artifact}" "${RCLONE_REMOTE%/}/${artifact}"
+  done
+  rclone check "${PRIMARY_DIR}" "${RCLONE_REMOTE}" --one-way \
+    --include "*-${BACKUP_ID}.*.gpg" --include "manifest-${BACKUP_ID}.json.gpg"
+  status_set_stage uploaded succeeded "Encrypted artifacts verified offsite"
 else
-  log "RCLONE_REMOTE not configured — skipping offsite upload (artifacts remain in ${BACKUP_DIR} only)."
+  if [ "${REQUIRE_OFFSITE_BACKUP:-false}" = "true" ]; then
+    echo "RCLONE_REMOTE is required when REQUIRE_OFFSITE_BACKUP=true" >&2
+    false
+  fi
+  status_set_stage uploaded skipped "Offsite remote not configured"
 fi
 
-# --- Step 5: Write success status -----------------------------------------
-write_status "true"
-log "Backup run ${TIMESTAMP} completed successfully."
+CURRENT_STAGE="retained"
+retention_days="${BACKUP_RETENTION_DAYS:-30}"
+if [[ ! "${retention_days}" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: BACKUP_RETENTION_DAYS must be a non-negative integer" >&2
+  false
+fi
+find "${PRIMARY_DIR}" -type f -name '*.gpg' -mtime "+${retention_days}" -delete
+find "${REPLICA_DIR}" -type f -name '*.gpg' -mtime "+${retention_days}" -delete
+if [ -n "${RCLONE_REMOTE:-}" ]; then
+  rclone delete "${RCLONE_REMOTE}" --min-age "${retention_days}d" --include '*.gpg'
+fi
+status_set_stage retained succeeded "Artifacts older than ${retention_days} days removed"
+
+status_mark_backup_complete
+log "Backup ${BACKUP_ID} created, replicated, and retained successfully."

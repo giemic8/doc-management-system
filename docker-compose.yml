@@ -160,18 +160,29 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-dms_user}:${POSTGRES_PASSWORD:-dms_secret_password}@postgres:5432/${POSTGRES_DB:-dms_db}
       STORAGE_PATH: /app/storage
       BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-change_this_backup_encryption_key_in_prod}
+      BACKUP_REPLICA_DIR: /backups-replica
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      REQUIRE_OFFSITE_BACKUP: ${REQUIRE_OFFSITE_BACKUP:-false}
+      RESTORE_DATABASE_NAME: dms_restore_verify
+      RESTORE_DATABASE_URL: postgres://${POSTGRES_USER:-dms_user}:${POSTGRES_PASSWORD:-dms_secret_password}@postgres:5432/dms_restore_verify
+      RESTORE_VERIFY_INTERVAL_SECONDS: ${RESTORE_VERIFY_INTERVAL_SECONDS:-604800}
+      RESTORE_SAMPLE_SIZE: ${RESTORE_SAMPLE_SIZE:-25}
+      SMTP_URL: ${SMTP_URL:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      BACKUP_ALERT_EMAIL_TO: ${BACKUP_ALERT_EMAIL_TO:-}
+      BACKUP_ALERT_EMAIL_FROM: ${BACKUP_ALERT_EMAIL_FROM:-}
       # Leave RCLONE_REMOTE empty to run backups locally without an offsite
       # upload (e.g. local dev) — see backup/scripts/run-backup.sh.
       RCLONE_REMOTE: ${RCLONE_REMOTE:-}
     volumes:
       - ./storage:/app/storage:ro
       - backup_status:/backups
-      # Real credentials live in an operator-provided, gitignored
-      # backup/rclone.conf (see backup/rclone.conf.example for the format).
-      # This mount is commented out by default so `docker compose up` still
-      # works out of the box without that file existing; uncomment once
-      # you've created backup/rclone.conf with real offsite credentials.
-      # - ./backup/rclone.conf:/config/rclone/rclone.conf:ro
+      # Must point at another physical disk/mount in production.
+      - ${BACKUP_REPLICA_HOST_PATH:-./backup-replica}:/backups-replica
+      # Default example keeps local setup bootable. Production points this
+      # variable at gitignored backup/rclone.conf containing credentials.
+      - ${RCLONE_CONFIG_HOST_PATH:-./backup/rclone.conf.example}:/config/rclone/rclone.conf:ro
     depends_on:
       postgres:
         condition: service_healthy
