@@ -19,7 +19,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 }) => {
   if (documents.length === 0) {
     return (
-      <div className="glass-panel p-12 text-center space-y-4 my-6">
+      <div className="glass-panel p-6 sm:p-12 text-center space-y-4 my-6">
         <FileText className="w-12 h-12 text-slate-600 mx-auto" />
         <h3 className="text-lg font-semibold text-slate-300">Keine Dokumente gefunden</h3>
         <p className="text-slate-500 text-sm max-w-md mx-auto">
