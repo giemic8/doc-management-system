@@ -1,2 +1,4 @@
 enabled: []
-settings: {}
+settings:
+  github:
+    instance_url: github.com

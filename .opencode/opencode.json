@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {},
+  "provider": {
+    "litellm": {
+      "models": {
+        "claude-sonnet-5": {}
+      },
+      "name": "LiteLLM (litellm)",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "apiKey": "{file:/Users/migi/Library/Application Support/exxaiting/project-tools/cca61bd0-56d8-4238-af91-3415d223ba40/provider-credentials/litellm/api-key}",
+        "baseURL": "https://ai.exxeta.info/v1"
+      }
+    }
+  }
+}
