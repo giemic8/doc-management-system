@@ -17,6 +17,8 @@ GitHub epic: [#28 — Family production readiness](https://github.com/giemic8/do
 | Operations dashboard | [#37](https://github.com/giemic8/doc-management-system/issues/37) |
 | Family mode | [#38](https://github.com/giemic8/doc-management-system/issues/38) |
 | Release qualification | [#39](https://github.com/giemic8/doc-management-system/issues/39) |
+| Google OAuth connector and Calendar read (Google track) | [#41](https://github.com/giemic8/doc-management-system/issues/41) |
+| Gmail attachment ingestion (Google track) | [#42](https://github.com/giemic8/doc-management-system/issues/42) |
 
 ## Product target
 
@@ -183,6 +185,28 @@ Acceptance:
 
 Depends on: 4, 5, 8, 9, and 10.
 
+## Google integration track
+
+Tracked here for visibility, deliberately **outside the eleven release gates**. Connecting Google is feature expansion, which the delivery policy below pauses until gate 11 passes. These two issues are listed so the coupling to gate 2 is explicit rather than discovered during implementation.
+
+### Google OAuth connector and Calendar read — [#41](https://github.com/giemic8/doc-management-system/issues/41)
+
+OAuth2 authorization against a Google Cloud project, per-user linked accounts, encrypted refresh/access tokens, and Google Calendar read. Adds no ingestion path, so it does not touch gate 2.
+
+Unblocked. Buildable independently of the readiness gates.
+
+Open risk: `gmail.readonly` is a restricted scope. Under "Testing" publishing status refresh tokens expire after seven days, which breaks unattended polling. Resolving this decides whether Google mail import can run unattended at all.
+
+### Gmail attachment ingestion — [#42](https://github.com/giemic8/doc-management-system/issues/42)
+
+Gmail messages matching a configurable search query are read and their attachments filed as documents. Idempotency lives in a `gmail_message_imports` ledger rather than in mailbox state, so `gmail.readonly` suffices and the mailbox stays unmodified.
+
+Depends on: 2 (Gmail is a fourth ingestion adapter, alongside browser upload, watchfolder, and IMAP), and #41.
+
+Recorded as native GitHub `blocked by` dependencies on #42. Building it before gate 2 would add a third hand-rolled copy of the ingest-and-enqueue sequence and write documents in a lifecycle state that gate 2 invalidates.
+
+Also relates to 6: with per-user Google accounts, an imported document needs a space/tag assignment for tag ACLs to scope it.
+
 ## Dependency graph
 
 ```text
@@ -198,8 +222,12 @@ Depends on: 4, 5, 8, 9, and 10.
 9 Operations dashboard needs 2 + 4
 10 Family mode needs 6 + 7 + 9
 11 Release qualification needs 4 + 5 + 8 + 9 + 10
+
+Google track (outside the release gates)
+#41 Google OAuth connector + Calendar read -- no gate dependency
+└── #42 Gmail attachment ingestion -- needs 2 and #41
 ```
 
 ## Delivery policy
 
-Feature expansion pauses until issue 11 passes. Each issue uses module-disjoint subagents per `docs/agents/subagents.md`, then integrated review. Issue acceptance criteria are release gates, not optional guidance.
+Feature expansion pauses until issue 11 passes. The Google integration track is the recorded exception: it is scheduled by explicit decision, not by this policy, and #42 stays gated on issue 2 regardless. Each issue uses module-disjoint subagents per `docs/agents/subagents.md`, then integrated review. Issue acceptance criteria are release gates, not optional guidance.

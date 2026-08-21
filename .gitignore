@@ -43,3 +43,7 @@ storage/input/*
 .github/prompts/*.prompt.md
 .github/skills/*.md
 /.mcp.json
+
+# openpackage source cache: full external repo clones (own .git dirs),
+# never real submodules (no .gitmodules) -- local cache only.
+.openpackage/source-cache/
