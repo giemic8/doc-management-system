@@ -22,6 +22,12 @@ export interface IngestionDocument {
   failure_reason: string | null;
   processing_attempts: number;
   file_path: string;
+  replica_file_path: string | null;
+  replica_verified_at: string | null;
+  file_hash: string;
+  is_encrypted: boolean;
+  encryption_iv: string | null;
+  encryption_auth_tag: string | null;
   ingestion_source: IngestionSource | null;
   ingestion_key: string | null;
 }
@@ -59,6 +65,20 @@ export async function retryDocument(documentId: string): Promise<IngestionDocume
   return transitionDocument(documentId, 'processing');
 }
 
+/**
+ * Thrown when the primary copy is durable on disk but the second
+ * independent copy could not be written and verified. The primary file
+ * and the document row are left in place (status 'failed') so a caller
+ * can fix just the missing replica via retryDurability instead of
+ * re-ingesting the source from scratch.
+ */
+export class ReplicaDurabilityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReplicaDurabilityError';
+  }
+}
+
 async function removeIfPresent(filePath: string): Promise<void> {
   try {
     await fs.promises.unlink(filePath);
@@ -77,13 +97,79 @@ async function moveFile(sourcePath: string, destinationPath: string): Promise<vo
   }
 }
 
+/**
+ * Writes the second independent copy of an already-durable primary file
+ * and verifies it byte-for-byte before returning. Any failure here must
+ * NOT touch the primary -- the caller keeps it and the document stays
+ * retryable via retryDurability.
+ */
+async function commitReplica(documentId: string, primaryPath: string, replicaPath: string): Promise<void> {
+  const storedHash = await StorageService.calculateFileHash(primaryPath);
+  try {
+    await StorageService.writeVerifiedCopy(primaryPath, replicaPath, storedHash);
+  } catch (error: any) {
+    throw new ReplicaDurabilityError(
+      `Primary copy is durable at ${primaryPath}, but the replica copy failed: ${error.message}`
+    );
+  }
+  await query(
+    `UPDATE documents SET replica_file_path = $2, replica_verified_at = CURRENT_TIMESTAMP WHERE id = $1;`,
+    [documentId, replicaPath]
+  );
+}
+
+/** An exact-content match that is already durable (both copies verified) and safe to hardlink instead of re-copying. */
+async function findDurableDuplicate(fileHash: string, excludeDocumentId?: string): Promise<IngestionDocument | undefined> {
+  if (config.storageEncryptionEnabled) return undefined; // per-file random IV means ciphertext copies can't be shared safely.
+  const result = await query(
+    `SELECT * FROM documents
+     WHERE file_hash = $1 AND is_encrypted = false AND replica_verified_at IS NOT NULL
+       AND id != COALESCE($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+     ORDER BY created_at ASC
+     LIMIT 1;`,
+    [fileHash, excludeDocumentId ?? null]
+  );
+  const candidate = result.rows[0] as IngestionDocument | undefined;
+  if (!candidate) return undefined;
+  if (!fs.existsSync(candidate.file_path) || !candidate.replica_file_path || !fs.existsSync(candidate.replica_file_path)) {
+    return undefined; // stale reference -- fall back to a normal dual write.
+  }
+  return candidate;
+}
+
+/**
+ * Retries just the missing replica copy for a document whose primary
+ * copy is already durable but which failed before the replica could be
+ * written and verified (see ReplicaDurabilityError). Does not touch the
+ * primary and does not require the original source bytes.
+ */
+export async function retryDurability(documentId: string): Promise<IngestionDocument> {
+  const result = await query('SELECT * FROM documents WHERE id = $1;', [documentId]);
+  const document = result.rows[0] as IngestionDocument | undefined;
+  if (!document) {
+    throw new Error(`Document ${documentId} not found`);
+  }
+  if (!fs.existsSync(document.file_path)) {
+    throw new Error(`Primary copy missing for document ${documentId} at ${document.file_path}; durability cannot be resumed`);
+  }
+  if (!document.replica_file_path || !fs.existsSync(document.replica_file_path)) {
+    const replicaPath = StorageService.getReplicaFilePath(path.basename(document.file_path));
+    await commitReplica(documentId, document.file_path, replicaPath);
+  }
+  if (document.status === 'failed') {
+    await transitionDocument(documentId, 'received');
+  }
+  await transitionDocument(documentId, 'durable');
+  return transitionDocument(documentId, 'processing');
+}
+
 export async function ingestDocument(input: IngestDocumentInput): Promise<IngestDocumentResult> {
   const fileHash = await StorageService.calculateFileHash(input.stagedPath);
   const stats = await fs.promises.stat(input.stagedPath);
   const safeFilename = path.basename(input.filename).slice(-500);
-  const targetPath = StorageService.getOriginalFilePath(
-    `${Date.now()}_${crypto.randomUUID()}_${safeFilename}`
-  );
+  const storedFilename = `${Date.now()}_${crypto.randomUUID()}_${safeFilename}`;
+  const targetPath = StorageService.getOriginalFilePath(storedFilename);
+  const replicaTargetPath = StorageService.getReplicaFilePath(storedFilename);
 
   let documentId: string | undefined;
   try {
@@ -124,6 +210,13 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
       }
 
       documentId = existingDocument.id;
+      // A previous attempt may have left a durable primary (and possibly a
+      // verified replica) behind under the old target path. It's being
+      // replaced by a fresh ingest below, so it would otherwise leak.
+      await removeIfPresent(existingDocument.file_path);
+      if (existingDocument.replica_file_path) {
+        await removeIfPresent(existingDocument.replica_file_path);
+      }
       await query(
         `UPDATE documents
          SET title = $2,
@@ -137,6 +230,8 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
              is_encrypted = false,
              encryption_iv = NULL,
              encryption_auth_tag = NULL,
+             replica_file_path = NULL,
+             replica_verified_at = NULL,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $1;`,
         [
@@ -160,17 +255,36 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
       );
     }
 
-    if (config.storageEncryptionEnabled) {
-      const encrypted = await encryptFile(input.stagedPath, targetPath, config.storageEncryptionKey);
+    const duplicate = await findDurableDuplicate(fileHash, documentId);
+    if (duplicate) {
+      // Exact content already has two verified copies on disk -- link into
+      // both instead of writing (and storing) the bytes a third time.
+      await StorageService.linkExistingCopy(duplicate.file_path, targetPath);
+      await StorageService.linkExistingCopy(duplicate.replica_file_path!, replicaTargetPath);
       await removeIfPresent(input.stagedPath);
       await query(
         `UPDATE documents
-         SET is_encrypted = true, encryption_iv = $2, encryption_auth_tag = $3
+         SET replica_file_path = $2, replica_verified_at = CURRENT_TIMESTAMP
          WHERE id = $1;`,
-        [documentId, encrypted.iv, encrypted.authTag]
+        [documentId, replicaTargetPath]
       );
     } else {
-      await moveFile(input.stagedPath, targetPath);
+      if (config.storageEncryptionEnabled) {
+        const encrypted = await encryptFile(input.stagedPath, targetPath, config.storageEncryptionKey);
+        await removeIfPresent(input.stagedPath);
+        await query(
+          `UPDATE documents
+           SET is_encrypted = true, encryption_iv = $2, encryption_auth_tag = $3
+           WHERE id = $1;`,
+          [documentId, encrypted.iv, encrypted.authTag]
+        );
+      } else {
+        await moveFile(input.stagedPath, targetPath);
+      }
+
+      // Primary is durable at this point; a replica failure below must not
+      // discard it -- only the transition to 'durable' is still pending.
+      await commitReplica(documentId, targetPath, replicaTargetPath);
     }
 
     await transitionDocument(documentId, 'durable');
@@ -188,7 +302,14 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
     return { document: processing, replayed: false };
   } catch (error: any) {
     await removeIfPresent(input.stagedPath);
-    await removeIfPresent(targetPath);
+    const isReplicaFailure = error instanceof ReplicaDurabilityError;
+    if (!isReplicaFailure) {
+      // Anything short of a verified replica isn't durable yet -- clean up
+      // whatever landed at targetPath (partial write or nothing at all).
+      // A ReplicaDurabilityError is the one case where targetPath already
+      // holds a fully verified primary copy that must be preserved.
+      await removeIfPresent(targetPath);
+    }
     const reason = error instanceof Error ? error.message : String(error);
     if (documentId) {
       try {

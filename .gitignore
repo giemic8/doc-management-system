@@ -27,6 +27,11 @@ storage/thumbnails/*
 storage/input/*
 !storage/input/.gitkeep
 
+# Ticket #31 — second independent copy of durable originals, created at
+# runtime by StorageService.initStorageDirectories(). Local dev default
+# mount; not source content.
+storage-replica/
+
 # System & IDE
 .DS_Store
 *.log

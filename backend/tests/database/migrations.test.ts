@@ -18,14 +18,19 @@ describe('database migrations', () => {
       client.release();
     }
 
-    await expect(runMigrations()).resolves.toEqual(['1:initial_schema', '2:canonical_ingestion']);
+    await expect(runMigrations()).resolves.toEqual([
+      '1:initial_schema',
+      '2:canonical_ingestion',
+      '3:dual_copy_durability',
+    ]);
 
     const history = await query(
       'SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version;'
     );
-    expect(history.rows).toHaveLength(2);
+    expect(history.rows).toHaveLength(3);
     expect(history.rows[0]).toMatchObject({ version: 1, name: 'initial_schema' });
     expect(history.rows[1]).toMatchObject({ version: 2, name: 'canonical_ingestion' });
+    expect(history.rows[2]).toMatchObject({ version: 3, name: 'dual_copy_durability' });
     for (const migration of history.rows) {
       expect(migration.checksum).toMatch(/^[a-f0-9]{64}$/);
       expect(migration.applied_at).toBeTruthy();
@@ -53,7 +58,7 @@ describe('database migrations', () => {
   it('is idempotent and preserves migration history', async () => {
     await expect(runMigrations()).resolves.toEqual([]);
     const result = await query('SELECT COUNT(*)::int AS count FROM schema_migrations;');
-    expect(result.rows[0].count).toBe(2);
+    expect(result.rows[0].count).toBe(3);
   });
 
   it('rejects a database migrated by a newer application build', async () => {
@@ -87,7 +92,7 @@ describe('database migrations', () => {
       'Database reset is allowed only when NODE_ENV=development or NODE_ENV=test'
     );
     const result = await query('SELECT COUNT(*)::int AS count FROM schema_migrations;');
-    expect(result.rows[0].count).toBe(2);
+    expect(result.rows[0].count).toBe(3);
   });
 
   it('requires the configured database name before resetting', async () => {
@@ -106,6 +111,7 @@ describe('database migrations', () => {
     expect(migrations.rows).toEqual([
       { version: 1, name: 'initial_schema' },
       { version: 2, name: 'canonical_ingestion' },
+      { version: 3, name: 'dual_copy_durability' },
     ]);
     expect(users.rows).toEqual([{ email: 'admin@dms.local', role: 'admin' }]);
     expect(tags.rows[0].count).toBe(6);

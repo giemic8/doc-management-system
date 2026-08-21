@@ -78,8 +78,13 @@ services:
       STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-change_this_storage_encryption_key_in_prod}
       STORAGE_ENCRYPTION_ENABLED: ${STORAGE_ENCRYPTION_ENABLED:-false}
       STORAGE_PATH: /app/storage
+      # Ticket #31 — second independent copy of every durable original.
+      # Must be a distinct host mount from STORAGE_PATH (different disk),
+      # or the dual-copy write buys no real redundancy against disk failure.
+      STORAGE_REPLICA_PATH: /app/storage-replica
     volumes:
       - ./storage:/app/storage
+      - ${STORAGE_REPLICA_HOST_PATH:-./storage-replica}:/app/storage-replica
       - backup_status:/app/backup-status:ro
     depends_on:
       postgres:
