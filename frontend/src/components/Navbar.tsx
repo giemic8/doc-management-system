@@ -25,13 +25,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   onChatClick,
 }) => {
   return (
-    <header className="h-16 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40 px-6 flex items-center justify-between">
+    <header className="h-16 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40 px-3 sm:px-6 flex items-center justify-between gap-2">
       {/* Brand */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/25">
           <FileText className="w-5 h-5 text-white" />
         </div>
-        <div>
+        <div className="hidden sm:block">
           <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white via-slate-200 to-indigo-300 bg-clip-text text-transparent">
             DocVault
           </span>
@@ -42,7 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Global Search */}
-      <div className="flex-1 max-w-xl mx-8 relative">
+      <div className="hidden md:block flex-1 max-w-xl mx-4 lg:mx-8 relative">
         <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
         <input
           type="text"
@@ -54,19 +54,21 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Quick Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1 sm:gap-3">
         <OfflineQueueIndicator />
 
         {/* AI Document Assistant (Ticket #18) */}
         {onChatClick && (
-          <button
-            onClick={onChatClick}
-            className="btn-secondary text-sm py-2 px-3 hover:border-indigo-500/50 hover:text-indigo-400"
-            title="Dokumenten-Assistent (KI-Chat)"
-          >
-            <MessageSquare className="w-4 h-4 text-indigo-400" />
-            <span className="hidden sm:inline">Assistent</span>
-          </button>
+          <div className="hidden xl:block">
+            <button
+              onClick={onChatClick}
+              className="btn-secondary text-sm py-2 px-3 hover:border-indigo-500/50 hover:text-indigo-400"
+              title="Dokumenten-Assistent (KI-Chat)"
+            >
+              <MessageSquare className="w-4 h-4 text-indigo-400" />
+              <span>Assistent</span>
+            </button>
+          </div>
         )}
 
         {/* Mobile Camera Scan */}
@@ -82,11 +84,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Upload Button */}
         <button onClick={onUploadClick} className="btn-primary text-sm py-2 px-4">
           <Upload className="w-4 h-4" />
-          <span>Upload</span>
+          <span className="hidden sm:inline">Upload</span>
         </button>
 
         {/* User Badge */}
-        <div className="h-8 w-px bg-slate-800 mx-1" />
+        <div className="hidden sm:block h-8 w-px bg-slate-800 mx-1" />
         <button
           onClick={onSettingsClick}
           className="w-8 h-8 rounded-full bg-indigo-950 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-semibold text-xs hover:border-indigo-400 transition-colors"
@@ -96,7 +98,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
         <button
           onClick={onSettingsClick}
-          className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition-colors"
+          className="hidden sm:inline-flex p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition-colors"
           title="Einstellungen"
         >
           <Settings className="w-4 h-4" />

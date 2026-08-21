@@ -26,7 +26,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, userR
   ];
 
   return (
-    <aside className="w-64 border-r border-slate-800/80 bg-slate-950/40 p-4 flex flex-col justify-between shrink-0 min-h-[calc(100vh-4rem)]">
+    <aside className="hidden md:flex w-64 border-r border-slate-800/80 bg-slate-950/40 p-4 flex-col justify-between shrink-0 min-h-[calc(100vh-4rem)]">
       <div className="space-y-1">
         <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
           Navigation

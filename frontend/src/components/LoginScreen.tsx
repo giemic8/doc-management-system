@@ -65,7 +65,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onMfaC
 
         <form onSubmit={handleSubmit} className="glass-panel p-6 space-y-4">
           <div className="space-y-1.5">
-            <label htmlFor="email" className="text-xs font-medium text-slate-400">
+            <label htmlFor="email" className="block text-xs font-medium text-slate-400">
               E-Mail
             </label>
             <input
@@ -81,7 +81,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onMfaC
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="password" className="text-xs font-medium text-slate-400">
+            <label htmlFor="password" className="block text-xs font-medium text-slate-400">
               Passwort
             </label>
             <input
