@@ -70,7 +70,7 @@ For AI features, keep deterministic fallback behavior when provider is unavailab
 
 - Frontend substitutes demo documents when API fetch fails. Browser appearance alone does not prove backend works.
 - Sidebar storage usage is static presentation data.
-- Worker polls PostgreSQL despite BullMQ enqueue calls. Changing queue semantics requires coordinated backend and worker change.
+- Worker claims canonical `processing` rows from PostgreSQL with `FOR UPDATE SKIP LOCKED`; backend adapters must use ingestion module instead of separate queue signals.
 - Versioned migrations run at backend startup. Existing migrations are immutable; every schema change adds a new ordered migration.
 - Database reset requires `npm run db:reset -- --confirm=<database-name>` and runs only in explicit development or test environment.
 - Docker defaults are development-only secrets. Production deployment must supply unique JWT, MFA, storage, database, and backup secrets.

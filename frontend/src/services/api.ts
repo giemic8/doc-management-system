@@ -108,11 +108,15 @@ export async function fetchDocumentDetail(id: string) {
   return res.data;
 }
 
-export async function uploadDocument(file: File, onProgress?: (percent: number) => void) {
+export async function uploadDocument(
+  file: File,
+  onProgress?: (percent: number) => void,
+  idempotencyKey: string = crypto.randomUUID()
+) {
   const formData = new FormData();
   formData.append('file', file);
   const res = await api.post('/documents/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+    headers: { 'Content-Type': 'multipart/form-data', 'Idempotency-Key': idempotencyKey },
     onUploadProgress: (event) => {
       if (onProgress && event.total) {
         onProgress(Math.round((event.loaded / event.total) * 100));

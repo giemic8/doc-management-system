@@ -32,7 +32,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {documents.map((doc) => {
-        const isProcessed = doc.status === 'processed';
+        const isProcessed = doc.status === 'ready';
         const isSelected = selectedIds?.has(doc.id) ?? false;
 
         return (

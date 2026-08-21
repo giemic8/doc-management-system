@@ -14,7 +14,7 @@ export interface DocumentItem {
   file_size: number;
   mime_type: string;
   file_hash: string;
-  status: 'pending' | 'processing' | 'processed' | 'error';
+  status: 'received' | 'durable' | 'processing' | 'review' | 'ready' | 'failed' | 'trashed';
   doc_type?: string;
   sender?: string;
   recipient?: string;
@@ -181,6 +181,5 @@ export interface GroupTagPermission {
   can_write: boolean;
   can_delete: boolean;
 }
-
 
 

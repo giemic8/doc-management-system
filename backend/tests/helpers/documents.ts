@@ -36,7 +36,7 @@ export async function createTestDocument(overrides?: {
     `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by)
      VALUES ($1, $1, $2, $3, 'application/pdf', $4, $5, $6)
      RETURNING *;`,
-    [title, filePath, bytes.length, fileHash, overrides?.status ?? 'processed', overrides?.createdBy ?? null]
+    [title, filePath, bytes.length, fileHash, overrides?.status ?? 'ready', overrides?.createdBy ?? null]
   );
 
   return res.rows[0];

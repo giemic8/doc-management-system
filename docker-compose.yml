@@ -95,14 +95,12 @@ services:
     # `docker compose up -d --scale worker=4`.
     restart: always
     environment:
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
       DATABASE_URL: postgres://${POSTGRES_USER:-dms_user}:${POSTGRES_PASSWORD:-dms_secret_password}@postgres:5432/${POSTGRES_DB:-dms_db}
       STORAGE_PATH: /app/storage
       OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
-      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-change_this_mfa_encryption_key_in_prod}
+      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-change_this_storage_encryption_key_in_prod}
       METRICS_PORT: 9100
     volumes:
       - ./storage:/app/storage
@@ -117,8 +115,6 @@ services:
     #           capabilities: [gpu]
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
 
   frontend:

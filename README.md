@@ -31,15 +31,14 @@
                    |              |                  |
                    v              v                  v
         +----------+----+  +------+-----+  +---------+--------+
-        | PostgreSQL    |  | Redis Queue|  | File Storage     |
-        | (DB & Search) |  | (BullMQ)   |  | (Originals & Input)
-        +---------------+  +------+-----+  +------------------+
-                                  |
-                                  v
-                   +--------------+------------------+
-                   |  Python AI & OCR Worker Service |
-                   |  (Tesseract OCR, Ollama / LLM)  |
-                   +---------------------------------+
+        | PostgreSQL    |  | Redis      |  | File Storage     |
+        | State/Search  |  | Rate limits|  | Originals/Input  |
+        +-------+-------+  +------------+  +---------+--------+
+                ^                                    ^
+                |                                    |
+                +----------+--------------+----------+
+                           | AI/OCR Worker |
+                           +---------------+
 ```
 
 ---
@@ -91,12 +90,12 @@ doc-management-system/
 │   │   ├── database/        # PostgreSQL schema & auto-migrations
 │   │   ├── middleware/      # Auth & RBAC
 │   │   ├── routes/          # Documents, Tags, Workflows, Audit
-│   │   └── services/        # Watchfolder & BullMQ Redis Producer
+│   │   └── services/        # Ingestion, storage, integrations, and domain modules
 ├── worker/                  # Python Microservice for OCR & AI
 │   ├── src/
 │   │   ├── ocr_engine.py    # Tesseract & PyPDF text extractor
 │   │   ├── ai_extractor.py  # LLM Metadata extraction & heuristics
-│   │   └── worker.py        # Redis task listener loop
+│   │   └── worker.py        # PostgreSQL lifecycle worker loop
 └── frontend/                # React (Vite) Single Page App & PWA
     ├── src/
     │   ├── components/      # DocumentList, PDFViewer, MobileScanner, WorkflowEditor

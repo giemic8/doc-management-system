@@ -45,7 +45,7 @@ describe('acl.service — DB-backed visibility rules', () => {
   async function makeDocument() {
     const res = await query(
       `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status)
-       VALUES ('Test Doc', 'test.pdf', '/tmp/test.pdf', 100, 'application/pdf', 'hash', 'processed')
+       VALUES ('Test Doc', 'test.pdf', '/tmp/test.pdf', 100, 'application/pdf', 'hash', 'ready')
        RETURNING id;`
     );
     return res.rows[0].id as string;

@@ -23,7 +23,7 @@ processing_latency_seconds = Histogram(
     "Time to process a single document (OCR + AI extraction + embeddings)",
 )
 pending_queue_length = Gauge(
-    "dms_worker_pending_queue_length", "Number of documents currently pending or processing"
+    "dms_worker_pending_queue_length", "Number of documents currently awaiting or undergoing processing"
 )
 
 _server_started = False
