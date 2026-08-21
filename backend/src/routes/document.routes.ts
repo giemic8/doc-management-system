@@ -394,16 +394,24 @@ router.get('/:id/file', authenticateToken, async (req: AuthRequest, res: Respons
       return res.status(403).json({ error: 'You do not have permission to access this document' });
     }
 
-    const docRes = await query(`SELECT file_path, derived_file_path, original_filename, mime_type, is_encrypted, encryption_iv, encryption_auth_tag FROM documents WHERE id = $1;`, [id]);
-    
+    const docRes = await query(`SELECT file_path, replica_file_path, derived_file_path, original_filename, mime_type, is_encrypted, encryption_iv, encryption_auth_tag FROM documents WHERE id = $1;`, [id]);
+
     if (docRes.rows.length === 0) {
       return res.status(404).json({ error: 'Document not found' });
     }
 
     const doc = docRes.rows[0];
-    const servePath = doc.derived_file_path && fs.existsSync(doc.derived_file_path)
-      ? doc.derived_file_path
-      : doc.file_path;
+    const wantsOriginal = !(doc.derived_file_path && fs.existsSync(doc.derived_file_path));
+    let servePath = wantsOriginal ? doc.file_path : doc.derived_file_path;
+
+    // Ticket #31 -- the primary original copy went missing (disk fault,
+    // accidental delete); fall back to the second independent copy rather
+    // than surfacing a 404 for data that is still durable elsewhere.
+    let servingFromReplica = false;
+    if (wantsOriginal && !fs.existsSync(servePath) && doc.replica_file_path && fs.existsSync(doc.replica_file_path)) {
+      servePath = doc.replica_file_path;
+      servingFromReplica = true;
+    }
 
     if (!fs.existsSync(servePath)) {
       return res.status(404).json({ error: 'File on disk not found' });
@@ -414,12 +422,19 @@ router.get('/:id/file', authenticateToken, async (req: AuthRequest, res: Respons
 
     // Encryption-at-rest applies to the original file; derived files (e.g.
     // OCR-processed variants) are written back out in plaintext by the
-    // worker today, so only decrypt when serving the original.
-    if (doc.is_encrypted && servePath === doc.file_path && doc.encryption_iv && doc.encryption_auth_tag) {
+    // worker today, so only decrypt when serving the original (whichever
+    // durable copy it came from -- both hold identical ciphertext bytes).
+    if (doc.is_encrypted && wantsOriginal && doc.encryption_iv && doc.encryption_auth_tag) {
       const decryptStream = createDecryptStream(doc.encryption_iv, doc.encryption_auth_tag);
       fs.createReadStream(servePath).pipe(decryptStream).pipe(res);
     } else {
       fs.createReadStream(servePath).pipe(res);
+    }
+
+    if (servingFromReplica) {
+      // Best-effort self-heal: restore the missing primary from the
+      // still-good replica so the next read doesn't need this fallback.
+      fs.promises.copyFile(doc.replica_file_path, doc.file_path).catch(() => {});
     }
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

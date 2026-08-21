@@ -14,6 +14,10 @@ export const config = {
   redisHost: process.env.REDIS_HOST || 'localhost',
   redisPort: parseInt(process.env.REDIS_PORT || '6379', 10),
   storagePath: process.env.STORAGE_PATH || path.join(__dirname, '../../../storage'),
+  // Second independent copy of every durable original (Ticket #31). Must
+  // resolve to different physical storage than storagePath -- a distinct
+  // disk/mount/volume -- or the dual-copy write buys no real redundancy.
+  storageReplicaPath: process.env.STORAGE_REPLICA_PATH || path.join(__dirname, '../../../storage-replica'),
 
   // LLM provider config for AI features (chat/RAG, metadata extraction).
   // Mirrors worker/src/ai_extractor.py's env var names exactly so ops only
