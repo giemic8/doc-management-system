@@ -9,6 +9,12 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:infra:up": "docker compose -f ../docker-compose.yml --profile test up -d --wait postgres-test redis-test",
+    "test:infra:down": "docker compose -f ../docker-compose.yml --profile test rm -sf postgres-test redis-test",
+    "test:integration": "npm run test:infra:up && npm test",
+    "db:migrate": "npm run build --silent && node dist/scripts/migrateDatabase.js",
+    "db:reset": "npm run build --silent && node dist/scripts/resetDatabase.js",
+    "db:create-admin": "npm run build --silent && node dist/scripts/createAdmin.js",
     "rotate-encryption-key": "ts-node src/scripts/rotateEncryptionKey.ts"
   },
   "dependencies": {

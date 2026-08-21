@@ -13,9 +13,9 @@ function getTestRedis(): Redis {
 }
 
 /**
- * Ensures schema exists and truncates all tables so each test file starts
- * from a clean slate. Re-seeds the default admin + tags (schema.ts seeds
- * only when tables are empty). Also clears rate-limit counters, since
+ * Applies migrations and truncates application tables so each test file starts
+ * from a clean slate. Migration history survives. Then re-seeds the development
+ * admin and reference tags. Also clears rate-limit counters, since
  * IP-keyed limits would otherwise leak across test files (supertest
  * requests all originate from the same local address).
  */
@@ -42,7 +42,7 @@ export async function resetDatabase() {
     RESTART IDENTITY CASCADE;
   `);
 
-  // Re-run seeding logic (schema.ts only seeds when tables are empty).
+  // Re-run idempotent reference/development seeds.
   await initDatabase();
 
   await clearRateLimits();
