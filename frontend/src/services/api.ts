@@ -15,6 +15,10 @@ import {
   AccessGroup,
   AccessGroupMember,
   GroupTagPermission,
+  DocumentItem,
+  TrashListResult,
+  PurgeResult,
+  PurgeExpiredResult,
 } from '../types';
 
 const API_BASE = '/api';
@@ -136,7 +140,13 @@ export async function bulkSetDocType(documentIds: string[], docType: string) {
   return res.data;
 }
 
-export async function bulkDeleteDocuments(documentIds: string[]) {
+/**
+ * Ticket #33 — moves the selected documents into the 90-day trash instead of
+ * deleting them. Rejects with 423 if any selection is retention-locked.
+ */
+export async function bulkDeleteDocuments(
+  documentIds: string[]
+): Promise<{ trashed: number; documentIds: string[] }> {
   const res = await api.post('/documents/bulk/delete', { documentIds });
   return res.data;
 }
@@ -322,4 +332,38 @@ export async function removeAccessGroupTagPermission(groupId: string, tagId: str
 export async function fetchAllUsers(): Promise<AccessGroupMember[]> {
   const res = await api.get('/admin/users');
   return res.data.users;
+}
+
+// Ticket #33 — 90-day trash lifecycle and controlled purge.
+export async function fetchTrash(params?: { limit?: number; offset?: number }): Promise<TrashListResult> {
+  const res = await api.get('/documents/trash', { params });
+  return res.data;
+}
+
+export async function trashDocument(documentId: string): Promise<DocumentItem> {
+  const res = await api.post(`/documents/${documentId}/trash`);
+  return res.data.document;
+}
+
+export async function restoreDocument(documentId: string): Promise<DocumentItem> {
+  const res = await api.post(`/documents/${documentId}/restore`);
+  return res.data.document;
+}
+
+/**
+ * Admin-only irreversible removal. `confirmation` must equal the document id;
+ * the optional flags acknowledge the share-link and backup-policy guards the
+ * backend raises as 409 responses.
+ */
+export async function purgeDocument(
+  documentId: string,
+  options: { confirmation: string; revokeShareLinks?: boolean; acknowledgeBackupPolicy?: boolean }
+): Promise<PurgeResult> {
+  const res = await api.post(`/documents/${documentId}/purge`, options);
+  return res.data;
+}
+
+export async function purgeExpiredDocuments(): Promise<PurgeExpiredResult> {
+  const res = await api.post('/documents/trash/purge-expired', { confirmation: 'purge-expired' });
+  return res.data;
 }

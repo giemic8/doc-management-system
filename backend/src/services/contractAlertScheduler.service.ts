@@ -1,5 +1,6 @@
 import { query } from '../database/db';
 import { findContractsNeedingAlert, ContractRow } from './contractWatcher.service';
+import { notTrashedCondition } from './documentVisibility.service';
 
 let intervalHandle: NodeJS.Timeout | null = null;
 
@@ -27,7 +28,8 @@ export function startContractAlertScheduler(checkIntervalMs: number = 60 * 60 * 
                cd.cancellation_deadline, cd.contract_end_date, cd.alert_sent_at,
                d.title AS document_title, d.sender AS vendor_name
         FROM contract_details cd
-        JOIN documents d ON d.id = cd.document_id;
+        JOIN documents d ON d.id = cd.document_id
+        WHERE ${notTrashedCondition('d')};
       `);
 
       const contracts: ContractRow[] = res.rows;

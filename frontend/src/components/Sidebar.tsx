@@ -1,5 +1,5 @@
 import React from 'react';
-import { Files, FolderSync, GitMerge, ShieldCheck, Tag, Settings, LayoutDashboard, BarChart3, FileClock, HardDriveDownload, Lock } from 'lucide-react';
+import { Files, FolderSync, GitMerge, ShieldCheck, Tag, Settings, LayoutDashboard, BarChart3, FileClock, HardDriveDownload, Lock, Trash2 } from 'lucide-react';
 
 interface SidebarProps {
   currentTab: string;
@@ -10,6 +10,9 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, userRole }) => {
   const navItems = [
     { id: 'documents', label: 'Alle Dokumente', icon: Files },
+    // Visible to every role (Ticket #33): the trash listing is ACL-filtered
+    // server-side, and only the purge actions inside it are admin-gated.
+    { id: 'trash', label: 'Papierkorb', icon: Trash2 },
     { id: 'watchfolder', label: 'Inbound Scan Folder', icon: FolderSync },
     { id: 'workflows', label: 'Workflows & Regeln', icon: GitMerge },
     { id: 'audit', label: 'Audit Log & Revisions', icon: ShieldCheck },

@@ -4,6 +4,7 @@ import helmet from 'helmet';
 
 import authRoutes from './routes/auth.routes';
 import documentRoutes from './routes/document.routes';
+import { trashRouter } from './routes/trash.routes';
 import tagRoutes from './routes/tag.routes';
 import workflowRoutes from './routes/workflow.routes';
 import auditRoutes from './routes/audit.routes';
@@ -30,6 +31,9 @@ app.use(express.json());
 
 // Routes
 app.use('/api/auth', authRoutes);
+// Ticket #33 -- registered before documentRoutes so GET /api/documents/trash
+// is not matched by GET /api/documents/:id.
+app.use('/api/documents', trashRouter);
 app.use('/api/documents', documentRoutes);
 app.use('/api/tags', tagRoutes);
 app.use('/api/workflows', workflowRoutes);

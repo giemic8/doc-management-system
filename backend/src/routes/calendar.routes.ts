@@ -4,6 +4,7 @@ import { query } from '../database/db';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import { buildIcsFeed, DocumentForFeed } from '../services/icalFeed.service';
 import { buildDocumentAclWhereClause } from '../services/acl.service';
+import { activeDocumentsCondition } from '../services/documentVisibility.service';
 
 const router = Router();
 
@@ -99,7 +100,7 @@ router.get('/feed.ics', async (req: Request, res: Response) => {
     const docsResult = await query(
       `SELECT d.id, d.title, d.doc_type, d.sender, d.due_date, d.amount, d.currency
        FROM documents d
-       WHERE d.is_archived = FALSE AND d.due_date IS NOT NULL
+       WHERE ${activeDocumentsCondition('d')} AND d.due_date IS NOT NULL
        ${aclClause ? `AND ${aclClause}` : ''}
        ORDER BY due_date ASC;`,
       params

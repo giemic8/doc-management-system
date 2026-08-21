@@ -12,11 +12,14 @@ import { dispatchWebhookEvent } from '../services/webhookDispatch.service';
 import { validateCustomFieldValues, CustomFieldDefinition } from '../services/customFieldValidation.service';
 import { decryptFile, createDecryptStream } from '../services/fileEncryption.service';
 import { isRetentionLocked } from '../services/retention.service';
+import { activeDocumentsCondition } from '../services/documentVisibility.service';
+import { TrashError, trashDocument } from '../services/trash.service';
 import { buildSepaEpcPayload } from '../services/sepaQr.service';
 import QRCode from 'qrcode';
 import { config } from '../config';
 import { buildDocumentAclWhereClause, canUserAccessDocument, canUserModifyDocument, canUserDeleteDocument, logUnauthorizedAccess } from '../services/acl.service';
 import { requireDocumentPermission } from '../middleware/documentAcl';
+import { rejectTrashedDocuments } from '../middleware/documentLifecycle';
 
 const router = Router();
 const upload = multer({ dest: path.join(__dirname, '../../../storage/tmp') });
@@ -35,7 +38,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
       FROM documents d
       LEFT JOIN document_tags dt ON d.id = dt.document_id
       LEFT JOIN tags t ON dt.tag_id = t.id
-      WHERE d.is_archived = FALSE
+      WHERE ${activeDocumentsCondition('d')}
     `;
     const params: any[] = [];
 
@@ -78,6 +81,7 @@ router.post(
   '/:id/split',
   authenticateToken,
   requireDocumentPermission('write', (req) => req.params.id, 'split_document'),
+  rejectTrashedDocuments((req) => req.params.id),
   async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { splitAtPage } = req.body;
@@ -142,6 +146,7 @@ router.post(
   '/merge',
   authenticateToken,
   requireDocumentPermission('write', (req) => req.body?.documentIds, 'merge_documents'),
+  rejectTrashedDocuments((req) => req.body?.documentIds),
   async (req: AuthRequest, res: Response) => {
   const { documentIds } = req.body;
   if (!Array.isArray(documentIds) || documentIds.length < 2) {
@@ -188,6 +193,7 @@ router.post(
   '/bulk/tag',
   authenticateToken,
   requireDocumentPermission('write', (req) => req.body?.documentIds, 'bulk_tag'),
+  rejectTrashedDocuments((req) => req.body?.documentIds),
   async (req: AuthRequest, res: Response) => {
   const { documentIds, tagId } = req.body;
   if (!Array.isArray(documentIds) || documentIds.length === 0 || !tagId) {
@@ -221,6 +227,7 @@ router.post(
   '/bulk/doc-type',
   authenticateToken,
   requireDocumentPermission('write', (req) => req.body?.documentIds, 'bulk_doc_type'),
+  rejectTrashedDocuments((req) => req.body?.documentIds),
   async (req: AuthRequest, res: Response) => {
   const { documentIds, docType } = req.body;
   if (!Array.isArray(documentIds) || documentIds.length === 0 || !docType) {
@@ -282,14 +289,21 @@ router.post('/bulk/delete', authenticateToken, async (req: AuthRequest, res: Res
       });
     }
 
-    await query(
-      `INSERT INTO audit_logs (document_id, user_id, action, details)
-       SELECT id, $2, 'bulk_delete', jsonb_build_object('title', title) FROM documents WHERE id = ANY($1::uuid[]);`,
-      [documentIds, req.user?.id]
-    );
-    const result = await query(`DELETE FROM documents WHERE id = ANY($1::uuid[]) RETURNING id;`, [documentIds]);
-    return res.json({ deleted: result.rows.length });
+    // Ticket #33 -- a normal delete moves documents into the 90-day trash
+    // instead of destroying them. Each document gets its own 'trash' audit
+    // event and its own recovery deadline (see trash.service.ts).
+    const trashed: string[] = [];
+    for (const docId of documentIds) {
+      await trashDocument(docId, { id: req.user?.id, ip: req.ip });
+      trashed.push(docId);
+    }
+    return res.json({ trashed: trashed.length, documentIds: trashed });
   } catch (err: any) {
+    if (err instanceof TrashError) {
+      // A concurrent change (e.g. a retention lock set mid-request) stopped
+      // the run; report what already moved so the caller can retry the rest.
+      return res.status(err.status).json({ error: err.message, reason: err.reason, ...err.details });
+    }
     return res.status(500).json({ error: err.message });
   }
 });
@@ -497,7 +511,12 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
       return res.status(403).json({ error: 'You do not have permission to modify this document' });
     }
 
-    const lockCheck = await query(`SELECT retention_until, legal_hold FROM documents WHERE id = $1;`, [id]);
+    const lockCheck = await query(`SELECT status, retention_until, legal_hold FROM documents WHERE id = $1;`, [id]);
+    // Ticket #33 -- checked after the ACL check on purpose: a user without
+    // access must not learn from the response that the document is trashed.
+    if (lockCheck.rows.length > 0 && lockCheck.rows[0].status === 'trashed') {
+      return res.status(409).json({ error: 'Document is in the trash; restore it before changing it', reason: 'document_trashed' });
+    }
     if (lockCheck.rows.length > 0 && isRetentionLocked(lockCheck.rows[0])) {
       return res.status(423).json({ error: 'Document is locked by a retention policy or legal hold and cannot be modified' });
     }
@@ -544,6 +563,7 @@ router.put(
   '/:id/custom-fields',
   authenticateToken,
   requireDocumentPermission('write', (req) => req.params.id, 'update_custom_fields'),
+  rejectTrashedDocuments((req) => req.params.id),
   async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { values } = req.body;

@@ -5,6 +5,7 @@ import { deriveContractStatus } from '../services/contractWatcher.service';
 import { buildCancellationLetterPdf } from '../services/cancellationLetter.service';
 import { buildDocumentAclWhereClause } from '../services/acl.service';
 import { requireDocumentPermission } from '../middleware/documentAcl';
+import { activeDocumentsCondition } from '../services/documentVisibility.service';
 
 const router = Router();
 
@@ -25,7 +26,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
               cd.cancellation_deadline, cd.contract_end_date, cd.alert_sent_at
        FROM documents d
        LEFT JOIN contract_details cd ON cd.document_id = d.id
-       WHERE d.doc_type = ANY($1::text[]) AND d.is_archived = FALSE
+       WHERE d.doc_type = ANY($1::text[]) AND ${activeDocumentsCondition('d')}
        ${aclClause ? `AND ${aclClause}` : ''}
        ORDER BY d.created_at DESC;`,
       params

@@ -8,6 +8,7 @@ import {
   AnalyticsDoc,
 } from '../services/analytics.service';
 import { buildDocumentAclWhereClause } from '../services/acl.service';
+import { activeDocumentsCondition } from '../services/documentVisibility.service';
 
 const router = Router();
 
@@ -32,7 +33,7 @@ router.get('/summary', authenticateToken, async (req: AuthRequest, res: Response
       params.push(tagId);
     }
 
-    queryText += ` WHERE d.is_archived = FALSE`;
+    queryText += ` WHERE ${activeDocumentsCondition('d')}`;
 
     if (start_date) {
       params.push(start_date);

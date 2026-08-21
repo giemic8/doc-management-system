@@ -34,9 +34,14 @@ shareLinkRouter.post(
   const { password, expiresInDays, maxDownloads } = req.body ?? {};
 
   try {
-    const docRes = await query(`SELECT id FROM documents WHERE id = $1;`, [id]);
+    const docRes = await query(`SELECT id, status FROM documents WHERE id = $1;`, [id]);
     if (docRes.rows.length === 0) {
       return res.status(404).json({ error: 'Document not found' });
+    }
+    // Ticket #33 -- a trashed document is excluded from normal use, so it
+    // must not gain new guest access while it waits out its recovery window.
+    if (docRes.rows[0].status === 'trashed') {
+      return res.status(409).json({ error: 'Document is in the trash and cannot be shared', reason: 'document_trashed' });
     }
 
     const token = crypto.randomBytes(32).toString('hex');
@@ -143,7 +148,7 @@ export const publicShareRouter = Router();
 async function fetchLinkWithDocument(token: string) {
   const result = await query(
     `SELECT l.*, d.title AS document_title, d.file_path, d.derived_file_path, d.original_filename,
-            d.mime_type, d.is_encrypted, d.encryption_iv, d.encryption_auth_tag
+            d.mime_type, d.is_encrypted, d.encryption_iv, d.encryption_auth_tag, d.status AS document_status
      FROM document_share_links l
      JOIN documents d ON d.id = l.document_id
      WHERE l.token = $1;`,
@@ -172,6 +177,14 @@ publicShareRouter.get('/:token/info', async (req: Request, res: Response) => {
     const link = await fetchLinkWithDocument(token);
     if (!link) {
       return res.status(404).json({ error: 'Link not found' });
+    }
+
+    // Ticket #33 -- the document was deleted into the trash after the link
+    // was handed out; guests lose access immediately, without waiting for
+    // the link itself to be revoked or expire.
+    if (link.document_status === 'trashed') {
+      await logGuestAccess(link.document_id, 'guest_share_document_trashed', link.id, req);
+      return res.status(410).json({ valid: false, error: 'Document is no longer available', reason: 'document_deleted' });
     }
 
     const validity = isShareLinkValid(link as ShareLinkRow);
@@ -214,6 +227,12 @@ publicShareRouter.post('/:token/verify', async (req: Request, res: Response) => 
     const link = await fetchLinkWithDocument(token);
     if (!link) {
       return res.status(404).json({ error: 'Link not found' });
+    }
+
+    // Ticket #33 -- trashed document: guest access ends immediately.
+    if (link.document_status === 'trashed') {
+      await logGuestAccess(link.document_id, 'guest_share_document_trashed', link.id, req);
+      return res.status(410).json({ valid: false, error: 'Document is no longer available', reason: 'document_deleted' });
     }
 
     const validity = isShareLinkValid(link as ShareLinkRow);
@@ -264,6 +283,12 @@ publicShareRouter.get('/:token/download', async (req: Request, res: Response) =>
     const link = await fetchLinkWithDocument(token);
     if (!link) {
       return res.status(404).json({ error: 'Link not found' });
+    }
+
+    // Ticket #33 -- trashed document: guest access ends immediately.
+    if (link.document_status === 'trashed') {
+      await logGuestAccess(link.document_id, 'guest_share_document_trashed', link.id, req);
+      return res.status(410).json({ valid: false, error: 'Document is no longer available', reason: 'document_deleted' });
     }
 
     const validity = isShareLinkValid(link as ShareLinkRow);
