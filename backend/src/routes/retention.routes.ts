@@ -6,6 +6,7 @@ import { query } from '../database/db';
 import { AuthRequest, authenticateToken, requireRole } from '../middleware/auth';
 import { calculateRetentionExpiry } from '../services/retention.service';
 import { buildAuditExportZip } from '../services/auditExport.service';
+import { buildSpaceVisibilityWhereClause } from '../services/spaceVisibility.service';
 
 // Mounted at /api/documents -- adds a :id/retention route alongside the
 // rest of the document routes.
@@ -64,15 +65,24 @@ auditExportRouter.get('/audit-package', authenticateToken, requireRole(['admin']
   const { start_date, end_date } = req.query;
 
   try {
-    let docsQuery = `SELECT id, file_path, original_filename, file_hash FROM documents WHERE 1=1`;
+    // Ticket #34 -- the GoBD package still contains everything the system
+    // holds for the business, but a private family space is not the
+    // business's records and must not leave in an admin's export. The
+    // exclusion is deliberate and visible here rather than silent.
     const params: any[] = [];
+    const spaceClause = buildSpaceVisibilityWhereClause(
+      { userId: req.user!.id, role: req.user!.role },
+      params,
+      'read'
+    );
+    let docsQuery = `SELECT d.id, d.file_path, d.original_filename, d.file_hash FROM documents d WHERE ${spaceClause}`;
     if (start_date) {
       params.push(start_date);
-      docsQuery += ` AND created_at >= $${params.length}`;
+      docsQuery += ` AND d.created_at >= $${params.length}`;
     }
     if (end_date) {
       params.push(end_date);
-      docsQuery += ` AND created_at <= $${params.length}`;
+      docsQuery += ` AND d.created_at <= $${params.length}`;
     }
 
     const docsRes = await query(docsQuery, params);

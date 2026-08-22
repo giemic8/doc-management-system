@@ -28,6 +28,9 @@ export interface DocumentItem {
   created_at: string;
   updated_at: string;
   tags?: Tag[];
+  // Ticket #34 — the family space a document lives in; null/undefined means
+  // the common area (everything that existed before spaces).
+  space_id?: string | null;
   // Ticket #33 — present once a document sits in the 90-day trash.
   trashed_at?: string;
   purge_after?: string;
@@ -223,4 +226,87 @@ export interface PurgeResult {
 export interface PurgeExpiredResult {
   purged: string[];
   skipped: { documentId: string; reason: string }[];
+}
+
+// Ticket #34 — private and shared family spaces.
+export type SpaceKind = 'private' | 'shared';
+
+export interface Space {
+  id: string;
+  name: string;
+  kind: SpaceKind;
+  owner_id: string;
+  owner_name: string | null;
+  created_at: string;
+  member_count: number;
+  document_count: number;
+  /**
+   * True when the caller may read the documents inside. An admin looking at
+   * somebody's private space — or a nominated trusted contact without an
+   * approved emergency grant — sees the space but gets `accessible: false`.
+   */
+  accessible: boolean;
+  /** True when the caller is a trusted contact the owner nominated for this space. */
+  trusted_contact: boolean;
+}
+
+export interface SpaceMember {
+  user_id: string;
+  name: string | null;
+  email: string | null;
+  can_write: boolean;
+  can_delete: boolean;
+}
+
+export interface TrustedContact {
+  user_id: string;
+  name: string | null;
+  email: string | null;
+}
+
+export interface SpaceDetail extends Space {
+  members: SpaceMember[];
+  trusted_contacts: TrustedContact[];
+}
+
+/**
+ * One account on the household server, as returned by GET /api/spaces/directory.
+ * Open to every role: name and address only, no role and no content.
+ */
+export interface DirectoryUser {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export type EmergencyStatus = 'pending' | 'approved' | 'denied' | 'revoked';
+
+export interface EmergencyRequest {
+  id: string;
+  space_id: string;
+  space_name: string;
+  space_owner_id: string;
+  requested_by: string;
+  requested_by_name: string | null;
+  approved_by: string | null;
+  approved_by_name: string | null;
+  reason: string;
+  requested_hours: number;
+  status: EmergencyStatus;
+  expires_at: string | null;
+  decided_at: string | null;
+  last_used_at: string | null;
+  use_count: number;
+  /** Approved, not revoked and not yet expired — i.e. the grant opens the space right now. */
+  active: boolean;
+  /** True when the caller may decide this request; never true for their own (two-person rule). */
+  can_decide: boolean;
+  created_at: string;
+}
+
+export interface EmergencyAccessListResult {
+  requests: EmergencyRequest[];
+  /** Server-side ceiling for the requested duration (hours). */
+  maxHours: number;
+  defaultHours: number;
 }

@@ -14,6 +14,7 @@ Operational recovery: [backup and clean-host restore guide](docs/operations/back
 - 📄 **Interactive PDF Viewer**: Multi-page PDF previewer with zooming, page rotation, text highlighting, and irreversible redaction (schwärzen).
 - ⚙️ **Automated Workflows**: Rule-based automation engine for tag assignment and due date reminders upon ingestion.
 - 🗑️ **90-Day Trash & Controlled Purge**: Deleting moves documents into a 90-day trash they can be restored from; destroying content is a separate admin action with typed confirmation, blocked by legal hold, retention lock, active share links, or a missing backup.
+- 🔐 **Private & Shared Family Spaces**: A private space is readable only by its owner — administrators included. Getting into somebody else's private space needs an emergency unlock: requested by a trusted contact the owner nominated in advance, approved by a second trusted person, read-only, expiring, and audited down to each document opened. Account recovery runs on the owner's own single-use recovery codes, so no admin password reset exists to work around any of it.
 - 🔒 **Enterprise RBAC & Revisions**: Full audit log history tracking document versions, user actions, and metadata edits.
 - ⚡ **Dual Engine Microservices**: Node.js/TypeScript API Gateway + Python AI/OCR Processing Worker + PostgreSQL (`pgvector`/FTS) + Redis.
 

@@ -38,6 +38,11 @@ export async function resetDatabase() {
       webhook_endpoints,
       email_import_config,
       access_groups,
+      emergency_access_requests,
+      space_trusted_contacts,
+      space_members,
+      spaces,
+      user_recovery_codes,
       users
     RESTART IDENTITY CASCADE;
   `);

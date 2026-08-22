@@ -12,6 +12,7 @@ import { SettingsPage } from './components/SettingsPage';
 import { BackupStatusPage } from './components/BackupStatusPage';
 import { AclManagement } from './components/AclManagement';
 import { TrashView } from './components/TrashView';
+import { SpacesView } from './components/SpacesView';
 import { AuthGate } from './components/AuthGate';
 import { BatchUploadQueue } from './components/BatchUploadQueue';
 import { ChatDrawer } from './components/ChatDrawer';
@@ -252,6 +253,7 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
             </div>
           )}
 
+          {currentTab === 'spaces' && <SpacesView user={user} />}
           {currentTab === 'trash' && <TrashView user={user} />}
           {currentTab === 'workflows' && <WorkflowEditor />}
           {currentTab === 'audit' && <AuditLogView />}

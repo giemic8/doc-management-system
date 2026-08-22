@@ -22,6 +22,8 @@ import contractsRoutes from './routes/contracts.routes';
 import { shareLinkRouter, publicShareRouter } from './routes/shareLink.routes';
 import backupRoutes from './routes/backup.routes';
 import accessGroupRoutes from './routes/accessGroup.routes';
+import spaceRoutes from './routes/space.routes';
+import emergencyAccessRoutes from './routes/emergencyAccess.routes';
 
 export const app = express();
 
@@ -54,6 +56,8 @@ app.use('/api/documents', shareLinkRouter);
 app.use('/api/share', publicShareRouter);
 app.use('/api/backup', backupRoutes);
 app.use('/api/access-groups', accessGroupRoutes);
+app.use('/api/spaces', spaceRoutes);
+app.use('/api/emergency-access', emergencyAccessRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

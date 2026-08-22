@@ -1,4 +1,10 @@
 import { query } from '../database/db';
+import {
+  buildSpaceVisibilityWhereClause,
+  recordEmergencyAccessUse,
+  resolveSpaceAccess,
+  SpacePermission,
+} from './spaceVisibility.service';
 
 /**
  * Granular Tag & Folder Access Control Lists (Ticket #19).
@@ -36,6 +42,15 @@ import { query } from '../database/db';
  *   for the entire existing test suite), this reduces to "everyone sees
  *   everything" -- i.e. this feature is opt-in and additive. Nothing
  *   changes until an admin actually creates a group and grants it tags.
+ *
+ * Ticket #34 adds a SECOND, independent dimension on top of this one:
+ * family spaces (see spaceVisibility.service.ts). Tag ACLs say which
+ * kinds of document a group may read; spaces say whose document it is.
+ * Both must allow an access, and the space rule binds admins too -- it is
+ * the one place where "admin sees everything" stops, because a private
+ * space exists precisely to be unreadable to whoever administers the box.
+ * Every function below therefore answers `tagRule AND spaceRule`, and the
+ * three checks stay the only place that composition is written down.
  */
 
 export interface AclContext {
@@ -46,8 +61,9 @@ export interface AclContext {
 /**
  * Builds a SQL WHERE-clause FRAGMENT (plus the params it needs, appended
  * to the given `params` array in place) enforcing the visibility rule
- * above for a query already aliasing the documents table as `d`. Returns
- * an empty string (no-op) for admins, since they bypass ACLs entirely.
+ * above for a query already aliasing the documents table as `d`. Since
+ * ticket #34 this is never empty: admins bypass the tag half but not the
+ * space half.
  *
  * `params` is mutated (params pushed) and the returned fragment references
  * the new param positions relative to the CURRENT length of `params` at
@@ -56,8 +72,13 @@ export interface AclContext {
  * clause with `AND`.
  */
 export function buildDocumentAclWhereClause(ctx: AclContext, params: any[]): string {
+  // The space rule applies to everybody, so this fragment is no longer
+  // empty for admins. Callers already splice it conditionally, so an
+  // admin-visible fragment needs nothing from them.
+  const spaceClause = buildSpaceVisibilityWhereClause(ctx, params, 'read');
+
   if (ctx.role === 'admin') {
-    return '';
+    return spaceClause;
   }
 
   params.push(ctx.userId);
@@ -79,48 +100,19 @@ export function buildDocumentAclWhereClause(ctx: AclContext, params: any[]): str
           AND uag.user_id = $${userIdParam}
       )
     )
+    AND ${spaceClause}
   `;
 }
 
 /**
- * Same visibility rule as above, but as a single-document boolean check
- * (used by routes that fetch one document by id, e.g. GET /:id,
- * GET /:id/file, PUT /:id) rather than a list query. Admins always pass.
+ * The tag half of the rule for a single document. A document that does
+ * not exist passes: routes answer that with their own 404, and turning it
+ * into a 403 would only tell the caller less about their own mistake.
  */
-export async function canUserAccessDocument(ctx: AclContext, documentId: string): Promise<boolean> {
-  if (ctx.role === 'admin') {
-    return true;
-  }
-
-  const result = await query(
-    `
-    SELECT (
-      NOT EXISTS (SELECT 1 FROM document_tags dt_untagged WHERE dt_untagged.document_id = $1)
-      OR EXISTS (
-        SELECT 1 FROM document_tags dt_acl
-        JOIN group_tag_permissions gtp ON gtp.tag_id = dt_acl.tag_id
-        JOIN user_access_groups uag ON uag.group_id = gtp.group_id
-        WHERE dt_acl.document_id = $1
-          AND gtp.can_read = true
-          AND uag.user_id = $2
-      )
-    ) AS visible;
-    `,
-    [documentId, ctx.userId]
-  );
-
-  return result.rows[0]?.visible === true;
-}
-
-/**
- * Write/delete variants of canUserAccessDocument, checking `can_write` /
- * `can_delete` instead of `can_read`. Same "untagged = allowed, tagged =
- * needs at least one matching grant" semantics; admins always pass.
- */
-async function canUserActOnDocument(
+async function passesTagAcl(
   ctx: AclContext,
   documentId: string,
-  permissionColumn: 'can_write' | 'can_delete'
+  permissionColumn: 'can_read' | 'can_write' | 'can_delete'
 ): Promise<boolean> {
   if (ctx.role === 'admin') {
     return true;
@@ -146,12 +138,58 @@ async function canUserActOnDocument(
   return result.rows[0]?.allowed === true;
 }
 
+/**
+ * Single-document form of the composed rule, used by routes that fetch
+ * one document by id (GET /:id, GET /:id/file, PUT /:id) and by
+ * requireDocumentPermission. Both halves must allow the access.
+ *
+ * A read that only succeeds because of an emergency grant is recorded
+ * here rather than at the route, so no future route can reach somebody's
+ * private space without leaving the trail its owner is owed.
+ */
+async function resolveDocumentPermission(
+  ctx: AclContext,
+  documentId: string,
+  permission: SpacePermission,
+  tagColumn: 'can_read' | 'can_write' | 'can_delete'
+): Promise<boolean> {
+  const space = await resolveSpaceAccess(ctx, documentId, permission);
+
+  // Unknown id: leave the answer to the route, which returns 404.
+  if (!space.documentExists) {
+    return passesTagAcl(ctx, documentId, tagColumn);
+  }
+
+  if (!space.allowedDirectly && !space.allowedByEmergencyGrant) {
+    return false;
+  }
+
+  if (!(await passesTagAcl(ctx, documentId, tagColumn))) {
+    return false;
+  }
+
+  if (!space.allowedDirectly && space.allowedByEmergencyGrant && space.spaceId) {
+    await recordEmergencyAccessUse(ctx.userId, space.spaceId, documentId);
+  }
+
+  return true;
+}
+
+export function canUserAccessDocument(ctx: AclContext, documentId: string): Promise<boolean> {
+  return resolveDocumentPermission(ctx, documentId, 'read', 'can_read');
+}
+
+/**
+ * Write/delete variants, checking `can_write` / `can_delete` on the tag
+ * side and the matching member column on the space side. Emergency grants
+ * are read-only, so they never satisfy these.
+ */
 export function canUserModifyDocument(ctx: AclContext, documentId: string): Promise<boolean> {
-  return canUserActOnDocument(ctx, documentId, 'can_write');
+  return resolveDocumentPermission(ctx, documentId, 'write', 'can_write');
 }
 
 export function canUserDeleteDocument(ctx: AclContext, documentId: string): Promise<boolean> {
-  return canUserActOnDocument(ctx, documentId, 'can_delete');
+  return resolveDocumentPermission(ctx, documentId, 'delete', 'can_delete');
 }
 
 /**

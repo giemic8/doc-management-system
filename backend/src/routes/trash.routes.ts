@@ -30,7 +30,7 @@ function respondToTrashError(err: any, res: Response) {
 }
 
 function actorFrom(req: AuthRequest) {
-  return { id: req.user?.id, ip: req.ip };
+  return { id: req.user?.id, ip: req.ip, role: req.user?.role };
 }
 
 // GET /api/documents/trash (documents in the 90-day recovery window)
@@ -148,6 +148,9 @@ trashRouter.post(
   '/:id/purge',
   authenticateToken,
   requireRole(['admin']),
+  // Ticket #34 -- admin is necessary but not sufficient: a purge is a delete,
+  // and the space rule binds admins. Nobody destroys what they cannot read.
+  requireDocumentPermission('delete', (req) => req.params.id, 'purge_document'),
   async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { confirmation, revokeShareLinks, acknowledgeBackupPolicy } = req.body ?? {};

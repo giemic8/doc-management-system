@@ -16,6 +16,12 @@ import {
 } from '../services/mfa.service';
 import { signChallengeToken, verifyChallengeToken } from '../services/mfaChallenge.service';
 import { checkRateLimit } from '../services/rateLimit.service';
+import {
+  countLiveRecoveryCodes,
+  RecoveryError,
+  redeemRecoveryCode,
+  regenerateRecoveryCodes,
+} from '../services/accountRecovery.service';
 
 interface BackupCodeRecord {
   codeHash: string;
@@ -295,6 +301,80 @@ router.post('/mfa/backup-codes/regenerate', authenticateToken, async (req: AuthR
 
     return res.json({ backupCodes });
   } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+
+/**
+ * Ticket #34 -- account recovery codes.
+ *
+ * These exist so that nobody ever needs an admin to get back into an
+ * account, because an admin who can reset your password can read your
+ * private space and no audit entry can tell that apart from you logging in.
+ * There is deliberately no admin-facing counterpart to either route below.
+ */
+
+// GET /api/auth/recovery-codes (how many unused codes the caller still holds)
+router.get('/recovery-codes', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    return res.json({ remaining: await countLiveRecoveryCodes(req.user!.id) });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/recovery-codes/regenerate { password } -- own account only
+router.post('/recovery-codes/regenerate', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const { password } = req.body;
+  if (!password) {
+    return res.status(400).json({ error: 'password is required' });
+  }
+
+  try {
+    const userRes = await query(`SELECT id, password_hash FROM users WHERE id = $1;`, [req.user!.id]);
+    const user = userRes.rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Re-proving the current password keeps a borrowed session from minting
+    // a permanent way back into the account.
+    if (!(await bcrypt.compare(password, user.password_hash))) {
+      return res.status(401).json({ error: 'Incorrect password' });
+    }
+
+    const recoveryCodes = await regenerateRecoveryCodes(user.id);
+    return res.json({ recoveryCodes });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/recovery/redeem { email, code, newPassword } -- public
+router.post('/recovery/redeem', async (req: AuthRequest, res: Response) => {
+  try {
+    // Unauthenticated and password-setting, so it is rate-limited per IP the
+    // same way the MFA challenge is.
+    const limit = await checkRateLimit(`recovery-redeem:ip:${req.ip}`, { limit: 5, windowSeconds: 15 * 60 });
+    if (!limit.allowed) {
+      return res.status(429).json({ error: 'Too many attempts. Please try again later.' });
+    }
+
+    await redeemRecoveryCode({
+      email: req.body?.email,
+      code: req.body?.code,
+      newPassword: req.body?.newPassword,
+      ip: req.ip,
+    });
+
+    // No session is issued here: the user signs in normally afterwards, which
+    // keeps MFA in the path for accounts that have it.
+    return res.json({ recovered: true });
+  } catch (err: any) {
+    if (err instanceof RecoveryError) {
+      return res.status(err.status).json({ error: err.message, reason: err.reason });
+    }
     return res.status(500).json({ error: err.message });
   }
 });
