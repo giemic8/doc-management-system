@@ -5,6 +5,7 @@ import { AuthRequest, authenticateToken } from '../middleware/auth';
 import { generateEmbedding } from '../services/embedding.service';
 import { reciprocalRankFusion } from '../services/hybridSearch.service';
 import { buildDocumentAclWhereClause } from '../services/acl.service';
+import { activeDocumentsCondition } from '../services/documentVisibility.service';
 
 const router = Router();
 
@@ -18,8 +19,8 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     // Leg 1: keyword full-text search over title/ocr_text/sender/summary.
     const keywordRes = await query(
-      `SELECT id FROM documents
-       WHERE is_archived = FALSE
+      `SELECT id FROM documents d
+       WHERE ${activeDocumentsCondition('d')}
          AND (title ILIKE $1 OR ocr_text ILIKE $1 OR sender ILIKE $1 OR summary ILIKE $1)
        ORDER BY created_at DESC
        LIMIT 20;`,
@@ -50,7 +51,10 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 
     const ids = fused.map((f) => f.id);
     const docsParams: any[] = [ids];
-    let docsQuery = `SELECT d.* FROM documents d WHERE d.id = ANY($1::uuid[])`;
+    // The vector leg searches document_chunks, which carries no lifecycle
+    // state of its own -- so archived and trashed documents are filtered
+    // out here, where both legs of the fusion meet.
+    let docsQuery = `SELECT d.* FROM documents d WHERE d.id = ANY($1::uuid[]) AND ${activeDocumentsCondition('d')}`;
     // Ticket #19 -- Granular Tag ACLs: strip out any fused result the
     // requesting (non-admin) user's groups aren't granted read access to.
     // Admins bypass this (see acl.service.ts); no-op if no ACLs configured.

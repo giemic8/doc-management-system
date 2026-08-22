@@ -140,14 +140,25 @@ def process_pending_documents():
                     print(f"Document {doc_id} successfully processed and indexed!")
                 except Exception as doc_err:
                     conn.rollback()
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            "SELECT * FROM transition_document(%s, 'failed', %s);",
-                            (doc_id, str(doc_err))
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "SELECT * FROM transition_document(%s, 'failed', %s);",
+                                (doc_id, str(doc_err))
+                            )
+                        conn.commit()
+                        documents_failed_total.inc()
+                        print(f"Document {doc_id} processing FAILED: {doc_err}")
+                    except Exception as transition_err:
+                        # Ticket #33 -- the document left 'processing' while we
+                        # worked on it (a user deleted it into the trash), so
+                        # 'failed' is no longer a legal transition. The user's
+                        # deletion wins; drop the processing result quietly.
+                        conn.rollback()
+                        print(
+                            f"Document {doc_id} changed state during processing, "
+                            f"leaving it as is: {transition_err}"
                         )
-                    conn.commit()
-                    documents_failed_total.inc()
-                    print(f"Document {doc_id} processing FAILED: {doc_err}")
 
         except Exception as err:
             print(f"Worker iteration notice/error: {err}")

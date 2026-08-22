@@ -13,6 +13,7 @@ Operational recovery: [backup and clean-host restore guide](docs/operations/back
 - 📱 **Mobile Camera Scanner (PWA)**: Built-in camera scanning tool with auto-crop boundary preview, contrast filters, and direct upload.
 - 📄 **Interactive PDF Viewer**: Multi-page PDF previewer with zooming, page rotation, text highlighting, and irreversible redaction (schwärzen).
 - ⚙️ **Automated Workflows**: Rule-based automation engine for tag assignment and due date reminders upon ingestion.
+- 🗑️ **90-Day Trash & Controlled Purge**: Deleting moves documents into a 90-day trash they can be restored from; destroying content is a separate admin action with typed confirmation, blocked by legal hold, retention lock, active share links, or a missing backup.
 - 🔒 **Enterprise RBAC & Revisions**: Full audit log history tracking document versions, user actions, and metadata edits.
 - ⚡ **Dual Engine Microservices**: Node.js/TypeScript API Gateway + Python AI/OCR Processing Worker + PostgreSQL (`pgvector`/FTS) + Redis.
 

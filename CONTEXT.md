@@ -12,6 +12,8 @@ DocVault is a self-hosted document management system. It ingests files, preserve
 - **Tag** — document classification and ACL attachment point.
 - **Access group** — user collection granted read, write, or delete permission through tag permissions. Admin bypasses tag ACLs.
 - **Retention lock** — active `retention_until` or `legal_hold`; blocks destructive document changes.
+- **Trash** — reversible delete. Document moves to `trashed`, keeps every stored byte, and stays restorable until `purge_after` (90 days) and beyond, as long as nobody purges it.
+- **Purge** — irreversible destruction of a trashed document: both durable copies, derived files, thumbnails, versions, and the record itself. Admin-only, needs explicit confirmation, and is refused under retention lock, active share links, or an unhealthy backup state.
 - **Share link** — revocable guest capability with optional password, expiry, and download limit.
 - **Workflow** — stored trigger, conditions, and actions evaluated around document ingestion.
 - **Audit event** — append-only record of security-sensitive or document-changing action.
@@ -39,7 +41,8 @@ Split and merged PDFs enter lifecycle as **Ready**. Archive state remains separa
 5. Encrypted files are decrypted only into temporary files and removed after use.
 6. Public share routes authenticate opaque share tokens, never normal user JWTs.
 7. Calendar feed routes authenticate revocable feed tokens because calendar clients cannot send JWT headers.
-8. Search and RAG exclude archived documents and must honor same ACL rules as document listing.
+8. Search, RAG, analytics, contract lists, calendar feeds, exports, and guest shares exclude archived and trashed documents, and must honor same ACL rules as document listing.
+9. Deleting a document trashes it; content is destroyed only by an explicitly authorized purge, and only from `trashed`.
 
 ## Module map
 

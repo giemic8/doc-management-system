@@ -28,6 +28,14 @@ export interface DocumentItem {
   created_at: string;
   updated_at: string;
   tags?: Tag[];
+  // Ticket #33 — present once a document sits in the 90-day trash.
+  trashed_at?: string;
+  purge_after?: string;
+  days_remaining?: number;
+  purge_eligible?: boolean;
+  retention_locked?: boolean;
+  active_share_links?: number;
+  trashed_by_name?: string | null;
 }
 
 export interface User {
@@ -183,3 +191,36 @@ export interface GroupTagPermission {
 }
 
 
+
+// Ticket #33 — 90-day trash lifecycle and controlled purge.
+export interface TrashedDocument extends DocumentItem {
+  trashed_at: string;
+  purge_after: string;
+  trashed_by: string | null;
+  trashed_by_name: string | null;
+  /** Days left in the 90-day window; 0 or negative once the window elapsed. */
+  days_remaining: number;
+  purge_eligible: boolean;
+  retention_locked: boolean;
+  active_share_links: number;
+  tags: Tag[];
+}
+
+export interface TrashListResult {
+  documents: TrashedDocument[];
+  retentionDays: number;
+}
+
+export interface PurgeResult {
+  purged: true;
+  documentId: string;
+  title: string;
+  removedFiles: number;
+  revokedShareLinks: number;
+  versionsRemoved: number;
+}
+
+export interface PurgeExpiredResult {
+  purged: string[];
+  skipped: { documentId: string; reason: string }[];
+}

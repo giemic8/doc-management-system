@@ -60,7 +60,9 @@ describe('Bulk document actions', () => {
   });
 
   describe('POST /api/documents/bulk/delete', () => {
-    it('deletes every selected document and logs the action', async () => {
+    // Ticket #33 -- a bulk delete moves documents into the 90-day trash;
+    // destroying them is the separate, admin-only purge action.
+    it('moves every selected document into the trash and logs the action', async () => {
       const { token } = await loginAsAdmin(app);
       const docA = await createTestDocument({ title: 'A.pdf' });
       const docB = await createTestDocument({ title: 'B.pdf' });
@@ -71,10 +73,14 @@ describe('Bulk document actions', () => {
         .send({ documentIds: [docA.id, docB.id] });
 
       expect(res.status).toBe(200);
-      expect(res.body.deleted).toBe(2);
+      expect(res.body.trashed).toBe(2);
 
-      const check = await query(`SELECT id FROM documents WHERE id = ANY($1::uuid[]);`, [[docA.id, docB.id]]);
-      expect(check.rows).toHaveLength(0);
+      const check = await query(`SELECT id, status FROM documents WHERE id = ANY($1::uuid[]);`, [[docA.id, docB.id]]);
+      expect(check.rows).toHaveLength(2);
+      check.rows.forEach((row: any) => expect(row.status).toBe('trashed'));
+
+      const audit = await query(`SELECT document_id FROM audit_logs WHERE action = 'trash';`);
+      expect(audit.rows.map((r: any) => r.document_id).sort()).toEqual([docA.id, docB.id].sort());
     });
   });
 

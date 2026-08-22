@@ -5,6 +5,7 @@ import os from 'os';
 import { query } from '../database/db';
 import { AuthRequest, authenticateToken, requireRole } from '../middleware/auth';
 import { buildDatevExportZip, DatevExportDocument } from '../services/datevExport.service';
+import { notTrashedCondition } from '../services/documentVisibility.service';
 
 // Mounted at /api/export -- DATEV & tax advisor export package.
 export const datevExportRouter = Router();
@@ -14,7 +15,7 @@ datevExportRouter.get('/datev', authenticateToken, requireRole(['admin']), async
   const { start_date, end_date } = req.query;
 
   try {
-    let docsQuery = `SELECT id, file_path, original_filename, document_date, amount, currency, tax_id, sender, is_encrypted, encryption_iv, encryption_auth_tag FROM documents WHERE 1=1`;
+    let docsQuery = `SELECT id, file_path, original_filename, document_date, amount, currency, tax_id, sender, is_encrypted, encryption_iv, encryption_auth_tag FROM documents d WHERE ${notTrashedCondition('d')}`;
     const params: any[] = [];
     if (start_date) {
       params.push(start_date);

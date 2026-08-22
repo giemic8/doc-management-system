@@ -11,6 +11,7 @@ import { ContractDashboard } from './components/ContractDashboard';
 import { SettingsPage } from './components/SettingsPage';
 import { BackupStatusPage } from './components/BackupStatusPage';
 import { AclManagement } from './components/AclManagement';
+import { TrashView } from './components/TrashView';
 import { AuthGate } from './components/AuthGate';
 import { BatchUploadQueue } from './components/BatchUploadQueue';
 import { ChatDrawer } from './components/ChatDrawer';
@@ -128,10 +129,16 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
     loadDocs();
   };
 
+  // Ticket #33 — bulk delete moves documents into the 90-day trash; the
+  // backend answers 423 when a selection is retention-locked.
   const handleBulkDelete = async () => {
-    if (!window.confirm(`${selectedIds.size} Dokumente wirklich löschen?`)) return;
-    await bulkDeleteDocuments(Array.from(selectedIds));
-    setSelectedIds(new Set());
+    if (!window.confirm(`${selectedIds.size} Dokumente in den Papierkorb verschieben?`)) return;
+    try {
+      await bulkDeleteDocuments(Array.from(selectedIds));
+      setSelectedIds(new Set());
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Verschieben in den Papierkorb fehlgeschlagen.');
+    }
     loadDocs();
   };
 
@@ -209,7 +216,7 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
                       <FolderInput className="w-3.5 h-3.5" /> Typ ändern
                     </button>
                     <button onClick={handleBulkDelete} className="btn-secondary text-xs py-1.5 px-3 hover:border-red-500/50 hover:text-red-400">
-                      <Trash2 className="w-3.5 h-3.5" /> Löschen
+                      <Trash2 className="w-3.5 h-3.5" /> In den Papierkorb
                     </button>
                     <button onClick={() => setSelectedIds(new Set())} className="text-slate-500 hover:text-slate-300">
                       <X className="w-4 h-4" />
@@ -245,6 +252,7 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
             </div>
           )}
 
+          {currentTab === 'trash' && <TrashView user={user} />}
           {currentTab === 'workflows' && <WorkflowEditor />}
           {currentTab === 'audit' && <AuditLogView />}
           {currentTab === 'analytics' && <AnalyticsDashboard />}

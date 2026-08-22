@@ -4,6 +4,7 @@ import { query } from '../database/db';
 import { config } from '../config';
 import { computeEmbedding } from './embedding.service';
 import { AclContext, buildDocumentAclWhereClause } from './acl.service';
+import { activeDocumentsCondition } from './documentVisibility.service';
 
 const DEFAULT_TOP_K = 8;
 
@@ -62,7 +63,7 @@ export async function retrieveRelevantChunks(
 
   const params: any[] = [pgvector.toSql(questionEmbedding)];
   const joins: string[] = [];
-  const conditions: string[] = ['d.is_archived = FALSE'];
+  const conditions: string[] = [activeDocumentsCondition('d')];
 
   if (scope.tagId) {
     joins.push('JOIN document_tags dtag ON dtag.document_id = d.id');
