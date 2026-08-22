@@ -25,6 +25,16 @@ import {
   DirectoryUser,
   EmergencyRequest,
   EmergencyAccessListResult,
+  OpsAlertSettings,
+  OpsCapacity,
+  OpsDashboardData,
+  OpsEvaluationResult,
+  OpsIncident,
+  ReviewAction,
+  ReviewItem,
+  ReviewResolution,
+  ReviewSettings,
+  SimilarityScanResult,
 } from '../types';
 
 const API_BASE = '/api';
@@ -461,4 +471,81 @@ export async function moveDocumentToSpace(
 ): Promise<DocumentItem> {
   const res = await api.put(`/documents/${documentId}/space`, { spaceId });
   return res.data.document;
+}
+
+// ---------------------------------------------------------------------------
+// Ticket #37 -- operations dashboard and alerts. All admin-only: the backend
+// answers 403 for anyone else, and the nav entry is hidden client-side.
+// ---------------------------------------------------------------------------
+
+export async function fetchOpsDashboard(): Promise<OpsDashboardData> {
+  const res = await api.get('/ops/dashboard');
+  return res.data;
+}
+
+/**
+ * The cheap slice used by the app shell's storage card: the last measured
+ * filesystem capacity, read from the stored probe rather than re-measured.
+ */
+export async function fetchOpsCapacity(): Promise<OpsCapacity> {
+  const res = await api.get('/ops/capacity');
+  return res.data;
+}
+
+export async function fetchOpsIncidents(status?: 'open' | 'resolved'): Promise<OpsIncident[]> {
+  const res = await api.get('/ops/incidents', { params: status ? { status } : undefined });
+  return res.data.incidents;
+}
+
+/** Rejects with 400 when thresholds contradict each other or a recipient is missing. */
+export async function updateOpsSettings(patch: Partial<OpsAlertSettings>): Promise<OpsAlertSettings> {
+  const res = await api.put('/ops/settings', patch);
+  return res.data.settings;
+}
+
+/** Runs the scheduler's cycle on demand; may open, bump or resolve incidents. */
+export async function runOpsEvaluation(): Promise<OpsEvaluationResult> {
+  const res = await api.post('/ops/evaluate');
+  return res.data;
+}
+
+/* ------------------------------------------------------------------ */
+/* Review inbox (Ticket #35)                                           */
+/* ------------------------------------------------------------------ */
+
+export async function fetchReviewItems(status: 'open' | 'all' = 'open'): Promise<ReviewItem[]> {
+  const res = await api.get('/review', { params: { status } });
+  return res.data.items;
+}
+
+/** Just the badge number, without pulling every proposal along with it. */
+export async function fetchReviewCount(): Promise<number> {
+  const res = await api.get('/review/count');
+  return res.data.openCount;
+}
+
+export async function fetchReviewSettings(): Promise<ReviewSettings> {
+  const res = await api.get('/review/settings');
+  return res.data.settings;
+}
+
+/** Admin-only; rejects with 400 when the thresholds would contradict each other. */
+export async function updateReviewSettings(patch: Partial<ReviewSettings>): Promise<ReviewSettings> {
+  const res = await api.put('/review/settings', patch);
+  return res.data.settings;
+}
+
+export async function resolveReviewItem(
+  itemId: string,
+  action: ReviewAction,
+  payload: { values?: Record<string, any>; note?: string } = {}
+): Promise<ReviewResolution> {
+  const res = await api.post(`/review/${itemId}/${action}`, payload);
+  return res.data;
+}
+
+/** Runs the pending similarity comparisons now instead of waiting for the scheduler. */
+export async function runSimilarityScan(documentId?: string): Promise<SimilarityScanResult[]> {
+  const res = await api.post('/review/scan', documentId ? { documentId } : {});
+  return res.data.results;
 }

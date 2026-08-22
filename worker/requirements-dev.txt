@@ -1,0 +1,3 @@
+# Test-only dependencies for the worker's pure logic (ticket #35).
+# Runtime dependencies stay in requirements.txt so the image does not ship these.
+pytest==9.1.1

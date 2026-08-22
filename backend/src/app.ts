@@ -24,6 +24,8 @@ import backupRoutes from './routes/backup.routes';
 import accessGroupRoutes from './routes/accessGroup.routes';
 import spaceRoutes from './routes/space.routes';
 import emergencyAccessRoutes from './routes/emergencyAccess.routes';
+import reviewRoutes from './routes/review.routes';
+import opsRoutes from './routes/ops.routes';
 
 export const app = express();
 
@@ -58,6 +60,8 @@ app.use('/api/backup', backupRoutes);
 app.use('/api/access-groups', accessGroupRoutes);
 app.use('/api/spaces', spaceRoutes);
 app.use('/api/emergency-access', emergencyAccessRoutes);
+app.use('/api/review', reviewRoutes);
+app.use('/api/ops', opsRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

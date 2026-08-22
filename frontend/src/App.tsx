@@ -13,6 +13,8 @@ import { BackupStatusPage } from './components/BackupStatusPage';
 import { AclManagement } from './components/AclManagement';
 import { TrashView } from './components/TrashView';
 import { SpacesView } from './components/SpacesView';
+import { ReviewInboxView } from './components/ReviewInboxView';
+import { OpsDashboard } from './components/OpsDashboard';
 import { AuthGate } from './components/AuthGate';
 import { BatchUploadQueue } from './components/BatchUploadQueue';
 import { ChatDrawer } from './components/ChatDrawer';
@@ -253,6 +255,7 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
             </div>
           )}
 
+          {currentTab === 'review' && <ReviewInboxView user={user} />}
           {currentTab === 'spaces' && <SpacesView user={user} />}
           {currentTab === 'trash' && <TrashView user={user} />}
           {currentTab === 'workflows' && <WorkflowEditor />}
@@ -261,6 +264,7 @@ const AppShell: React.FC<{ user: User; onLogout: () => void }> = ({ user, onLogo
           {currentTab === 'contracts' && <ContractDashboard />}
           {currentTab === 'backup' && <BackupStatusPage />}
           {currentTab === 'acl' && <AclManagement />}
+          {currentTab === 'ops' && <OpsDashboard />}
           {currentTab === 'settings' && <SettingsPage user={user} />}
         </main>
       </div>

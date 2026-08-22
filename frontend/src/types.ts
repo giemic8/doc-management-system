@@ -310,3 +310,170 @@ export interface EmergencyAccessListResult {
   maxHours: number;
   defaultHours: number;
 }
+
+// ---------------------------------------------------------------------------
+// Ticket #37 -- operations dashboard and alerts
+// ---------------------------------------------------------------------------
+
+export type OpsComponentName =
+  | 'database'
+  | 'redis'
+  | 'storage'
+  | 'backup'
+  | 'ingestion'
+  | 'worker'
+  | 'email_import'
+  | 'ai_provider';
+
+export type OpsStatus = 'ok' | 'degraded' | 'failed';
+export type OpsSeverity = 'warning' | 'critical';
+
+/**
+ * One measured dependency. `metrics` is deliberately loose: each probe
+ * reports the numbers that make sense for it (bytes for storage, minutes
+ * for the ingestion queue), and by contract none of them ever contains a
+ * document title, filename or sender.
+ */
+export interface OpsComponentHealth {
+  component: OpsComponentName;
+  status: OpsStatus;
+  lastSuccessAt: string | null;
+  currentFailure: string | null;
+  metrics: Record<string, any>;
+  recoveryAction: string;
+  lastCheckedAt: string;
+}
+
+export interface OpsDelivery {
+  id: string;
+  channel: string;
+  phase: 'alert' | 'recovery';
+  status: 'delivered' | 'failed' | 'skipped';
+  recipient: string | null;
+  error: string | null;
+  attemptedAt: string;
+}
+
+export interface OpsIncident {
+  id: string;
+  component: OpsComponentName;
+  kind: string;
+  severity: OpsSeverity;
+  status: 'open' | 'resolved';
+  summary: string;
+  detail: Record<string, any>;
+  /** How often the same problem was observed; deduplication made visible. */
+  occurrences: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  resolvedAt: string | null;
+  recoveryNotifiedAt: string | null;
+  deliveries: OpsDelivery[];
+}
+
+export interface OpsAlertSettings {
+  emailEnabled: boolean;
+  recipient: string | null;
+  minSeverity: OpsSeverity;
+  queueAgeWarnMinutes: number;
+  queueAgeFailMinutes: number;
+  storageFreeWarnPercent: number;
+  storageFreeFailPercent: number;
+  backupVerifyMaxAgeHours: number;
+  workerStaleMinutes: number;
+  emailPollStaleMinutes: number;
+  updatedBy: string | null;
+  updatedAt: string | null;
+  /** Whether the server has an SMTP host at all; false means alerts stay local. */
+  smtpConfigured: boolean;
+}
+
+export interface OpsDashboardData {
+  generatedAt: string;
+  overallStatus: OpsStatus;
+  components: OpsComponentHealth[];
+  incidents: OpsIncident[];
+  openIncidents: OpsIncident[];
+  settings: OpsAlertSettings;
+}
+
+/** Measured filesystem capacity, replacing the app shell's old fixed figure. */
+export interface OpsCapacity {
+  measuredAt: string | null;
+  metrics: Record<string, any>;
+}
+
+export interface OpsEvaluationResult {
+  opened: number;
+  ongoing: number;
+  resolved: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Review inbox (Ticket #35)                                           */
+/* ------------------------------------------------------------------ */
+
+export type ReviewItemKind = 'low_confidence' | 'exact_duplicate' | 'similar_document';
+export type ReviewItemStatus = 'open' | 'accepted' | 'corrected' | 'separated' | 'retried' | 'dismissed';
+export type ReviewAction = 'accept' | 'correct' | 'retry' | 'separate' | 'dismiss';
+
+/** What the thresholds made of one extracted field. */
+export type ReviewDecision = 'auto_accepted' | 'needs_review' | 'discarded';
+
+export interface ReviewProposal {
+  field: string;
+  proposedValue: any;
+  appliedValue: any;
+  confidence: number;
+  decision: ReviewDecision;
+  provider: string | null;
+  model: string | null;
+  resolvedAt: string | null;
+}
+
+/** The other half of a duplicate question; `title` is null when unreadable. */
+export interface ReviewCounterpart {
+  documentId: string;
+  title: string | null;
+  redacted: boolean;
+  similarity: number | null;
+  linkStatus: string | null;
+}
+
+export interface ReviewItem {
+  id: string;
+  documentId: string;
+  documentTitle: string;
+  documentStatus: string;
+  kind: ReviewItemKind;
+  status: ReviewItemStatus;
+  detail: Record<string, any>;
+  createdAt: string;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+  counterpart: ReviewCounterpart | null;
+  proposals: ReviewProposal[];
+}
+
+export interface ReviewSettings {
+  autoAcceptConfidence: number;
+  reviewConfidence: number;
+  duplicateSimilarity: number;
+  similarityScanCandidates: number;
+  updatedBy: string | null;
+  updatedAt: string | null;
+}
+
+export interface ReviewResolution {
+  item: ReviewItem;
+  documentStatus: string;
+  appliedFields: string[];
+  rejectedFields: string[];
+}
+
+export interface SimilarityScanResult {
+  scanned: boolean;
+  skippedReason?: string;
+  candidates: number;
+  matches: Array<{ documentId: string; similarity: number }>;
+}

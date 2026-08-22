@@ -45,3 +45,15 @@ export async function resetRateLimit(key: string): Promise<void> {
   const client = getRedis();
   await client.del(`ratelimit:${key}`);
 }
+
+/**
+ * Ticket #37 -- a real round trip to Redis for the operations health probe.
+ * Lives here because this module already owns the Redis client; the health
+ * service must not open a second connection of its own just to ask whether
+ * the first one would work. Rejects when Redis is unreachable, which is the
+ * signal the probe is after.
+ */
+export async function pingRedis(): Promise<string> {
+  const client = getRedis();
+  return client.ping();
+}

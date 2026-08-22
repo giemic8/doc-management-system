@@ -24,17 +24,21 @@ describe('database migrations', () => {
       '3:dual_copy_durability',
       '4:trash_and_purge',
       '5:family_spaces',
+      '6:review_inbox',
+      '7:ops_alerts',
     ]);
 
     const history = await query(
       'SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version;'
     );
-    expect(history.rows).toHaveLength(5);
+    expect(history.rows).toHaveLength(7);
     expect(history.rows[0]).toMatchObject({ version: 1, name: 'initial_schema' });
     expect(history.rows[1]).toMatchObject({ version: 2, name: 'canonical_ingestion' });
     expect(history.rows[2]).toMatchObject({ version: 3, name: 'dual_copy_durability' });
     expect(history.rows[3]).toMatchObject({ version: 4, name: 'trash_and_purge' });
     expect(history.rows[4]).toMatchObject({ version: 5, name: 'family_spaces' });
+    expect(history.rows[5]).toMatchObject({ version: 6, name: 'review_inbox' });
+    expect(history.rows[6]).toMatchObject({ version: 7, name: 'ops_alerts' });
     for (const migration of history.rows) {
       expect(migration.checksum).toMatch(/^[a-f0-9]{64}$/);
       expect(migration.applied_at).toBeTruthy();
@@ -44,7 +48,7 @@ describe('database migrations', () => {
       `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;`
     );
     const tableNames = tables.rows.map((row) => row.tablename);
-    expect(tableNames).toHaveLength(27);
+    expect(tableNames).toHaveLength(35);
     expect(tableNames).toEqual(
       expect.arrayContaining([
         'documents',
@@ -53,6 +57,12 @@ describe('database migrations', () => {
         'spaces',
         'space_members',
         'emergency_access_requests',
+        'review_settings',
+        'review_items',
+        'document_extractions',
+        'document_duplicate_links',
+        'ops_incidents',
+        'ops_alert_deliveries',
         'users',
         'schema_migrations',
       ])
@@ -65,7 +75,7 @@ describe('database migrations', () => {
   it('is idempotent and preserves migration history', async () => {
     await expect(runMigrations()).resolves.toEqual([]);
     const result = await query('SELECT COUNT(*)::int AS count FROM schema_migrations;');
-    expect(result.rows[0].count).toBe(5);
+    expect(result.rows[0].count).toBe(7);
   });
 
   it('rejects a database migrated by a newer application build', async () => {
@@ -99,7 +109,7 @@ describe('database migrations', () => {
       'Database reset is allowed only when NODE_ENV=development or NODE_ENV=test'
     );
     const result = await query('SELECT COUNT(*)::int AS count FROM schema_migrations;');
-    expect(result.rows[0].count).toBe(5);
+    expect(result.rows[0].count).toBe(7);
   });
 
   it('requires the configured database name before resetting', async () => {
@@ -121,6 +131,8 @@ describe('database migrations', () => {
       { version: 3, name: 'dual_copy_durability' },
       { version: 4, name: 'trash_and_purge' },
       { version: 5, name: 'family_spaces' },
+      { version: 6, name: 'review_inbox' },
+      { version: 7, name: 'ops_alerts' },
     ]);
     expect(users.rows).toEqual([{ email: 'admin@dms.local', role: 'admin' }]);
     expect(tags.rows[0].count).toBe(6);

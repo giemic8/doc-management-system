@@ -52,44 +52,47 @@ def process_one_document(conn, doc, ai_extractor, embedding_generator):
             os.remove(decrypted_temp_path)
 
     # 2. AI Metadata Extraction
-    meta = ai_extractor.extract_metadata(ocr_text)
-    print(f"AI Extracted Metadata: {meta}")
+    extraction = ai_extractor.extract_metadata(ocr_text)
+    fields = extraction.get('fields', {})
+    print(f"AI extracted {len(fields)} scored field(s) via {extraction.get('provider')}")
 
     with conn.cursor() as cur:
-        # 3. Update extracted metadata. Lifecycle transition stays centralized
-        # in PostgreSQL so every producer and worker follows the same rules.
+        # 3. OCR text is the machine's own output about the file, not a claim
+        # about what the document means, so it is stored directly.
         cur.execute("""
-            UPDATE documents 
+            UPDATE documents
             SET ocr_text = %s,
-                doc_type = %s,
-                sender = %s,
-                recipient = %s,
-                document_date = %s,
-                due_date = %s,
-                amount = %s,
-                summary = %s,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s;
-        """, (
-            ocr_text,
-            meta.get('doc_type'),
-            meta.get('sender'),
-            meta.get('recipient'),
-            meta.get('document_date'),
-            meta.get('due_date'),
-            meta.get('amount'),
-            meta.get('summary'),
-            doc_id
-        ))
+        """, (ocr_text, doc_id))
 
-        # Add extracted tags
-        for tag_name in meta.get('tags', []):
-            cur.execute("INSERT INTO tags (name) VALUES (%s) ON CONFLICT (name) DO NOTHING;", (tag_name,))
-            cur.execute("""
-                INSERT INTO document_tags (document_id, tag_id)
-                SELECT %s, id FROM tags WHERE name = %s
-                ON CONFLICT DO NOTHING;
-            """, (doc_id, tag_name))
+        # Ticket #35 -- extracted metadata is a proposal with a confidence,
+        # never a fact. record_extraction() applies the configured thresholds
+        # and apply_document_extractions() writes only what cleared the
+        # auto-accept bar, so the worker cannot disagree with the inbox.
+        if fields:
+            cur.execute(
+                "DELETE FROM document_extractions WHERE document_id = %s AND NOT (field = ANY(%s));",
+                (doc_id, list(fields.keys()))
+            )
+        else:
+            cur.execute("DELETE FROM document_extractions WHERE document_id = %s;", (doc_id,))
+
+        for field, proposal in fields.items():
+            cur.execute(
+                "SELECT * FROM record_extraction(%s, %s, %s::jsonb, %s, %s, %s);",
+                (
+                    doc_id,
+                    field,
+                    json.dumps(proposal['value']),
+                    proposal['confidence'],
+                    extraction.get('provider'),
+                    extraction.get('model'),
+                )
+            )
+
+        cur.execute("SELECT apply_document_extractions(%s) AS needs_review;", (doc_id,))
+        needs_review = cur.fetchone()['needs_review']
 
         # 4. Chunk text + generate embeddings for hybrid semantic search (Ticket #4)
         try:
@@ -103,7 +106,12 @@ def process_one_document(conn, doc, ai_extractor, embedding_generator):
         except Exception as embed_err:
             print(f"Embedding generation notice/error for document {doc_id}: {embed_err}")
 
-        cur.execute("SELECT * FROM transition_document(%s, 'ready', NULL);", (doc_id,))
+        # Lifecycle transition stays centralized in PostgreSQL: 'review' while
+        # a person still owes an answer -- about a field, or about a duplicate
+        # found at ingest -- and 'ready' only when nobody does.
+        cur.execute("SELECT settle_document_review(%s) AS status;", (doc_id,))
+        settled_status = cur.fetchone()['status']
+        print(f"Document {doc_id} settled as '{settled_status}' (needs_review={needs_review})")
 
     conn.commit()
 

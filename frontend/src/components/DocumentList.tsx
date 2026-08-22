@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, Calendar, Building, DollarSign, Tag, CheckCircle2, Clock, AlertCircle, Eye, CheckSquare, Square } from 'lucide-react';
+import { FileText, Calendar, Building, DollarSign, Tag, CheckCircle2, Clock, AlertCircle, ClipboardCheck, Eye, CheckSquare, Square } from 'lucide-react';
 import { DocumentItem } from '../types';
 
 interface DocumentListProps {
@@ -33,6 +33,9 @@ export const DocumentList: React.FC<DocumentListProps> = ({
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {documents.map((doc) => {
         const isProcessed = doc.status === 'ready';
+        // Ticket #35 -- 'review' waits on a person, not on the machine. A
+        // spinning clock would say the opposite and nobody would ever look.
+        const needsReview = doc.status === 'review';
         const isSelected = selectedIds?.has(doc.id) ?? false;
 
         return (
@@ -64,11 +67,19 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                   className={`text-[11px] px-2 py-0.5 rounded-full font-medium shrink-0 flex items-center gap-1 ${
                     isProcessed
                       ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      : needsReview
+                        ? 'bg-sky-500/10 text-sky-300 border border-sky-500/20'
+                        : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                   }`}
                 >
-                  {isProcessed ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3 animate-spin" />}
-                  {doc.status}
+                  {isProcessed ? (
+                    <CheckCircle2 className="w-3 h-3" />
+                  ) : needsReview ? (
+                    <ClipboardCheck className="w-3 h-3" />
+                  ) : (
+                    <Clock className="w-3 h-3 animate-spin" />
+                  )}
+                  {needsReview ? 'Prüfen' : doc.status}
                 </span>
               </div>
 
