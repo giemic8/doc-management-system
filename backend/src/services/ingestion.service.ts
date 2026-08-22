@@ -18,6 +18,7 @@ export type DocumentState =
 export interface IngestionDocument {
   id: string;
   title: string;
+  space_id?: string | null;
   status: DocumentState;
   failure_reason: string | null;
   processing_attempts: number;
@@ -42,6 +43,12 @@ export interface IngestDocumentInput {
   mimeType: string;
   createdBy?: string;
   sender?: string;
+  /**
+   * Ticket #34 -- the family space this delivery belongs in. `undefined`
+   * means the common area, which is where watchfolder and email imports
+   * land: an unattended source has nobody to decide privacy for.
+   */
+  spaceId?: string | null;
 }
 
 export interface IngestDocumentResult {
@@ -176,8 +183,8 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
     const inserted = await query(
       `INSERT INTO documents (
          title, original_filename, file_path, file_size, mime_type, file_hash, status,
-         created_by, sender, ingestion_source, ingestion_key
-       ) VALUES ($1, $1, $2, $3, $4, $5, 'received', $6, $7, $8, $9)
+         created_by, sender, ingestion_source, ingestion_key, space_id
+       ) VALUES ($1, $1, $2, $3, $4, $5, 'received', $6, $7, $8, $9, $10)
        ON CONFLICT (ingestion_source, ingestion_key)
          WHERE ingestion_source IS NOT NULL AND ingestion_key IS NOT NULL
        DO NOTHING
@@ -192,6 +199,7 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
         input.sender ?? null,
         input.source,
         input.idempotencyKey,
+        input.spaceId ?? null,
       ]
     );
 
@@ -227,6 +235,10 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
              file_hash = $6,
              created_by = COALESCE($7, created_by),
              sender = COALESCE($8, sender),
+             -- Ticket #34: a retry keeps whatever space the first attempt
+             -- chose unless the caller names one, so re-delivering a failed
+             -- import can never quietly move a document out of its space.
+             space_id = COALESCE($9, space_id),
              is_encrypted = false,
              encryption_iv = NULL,
              encryption_auth_tag = NULL,
@@ -243,6 +255,7 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
           fileHash,
           input.createdBy ?? null,
           input.sender ?? null,
+          input.spaceId ?? null,
         ]
       );
       await transitionDocument(documentId, 'received');

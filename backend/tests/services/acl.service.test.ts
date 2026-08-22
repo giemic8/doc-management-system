@@ -9,19 +9,26 @@ import {
 } from '../../src/services/acl.service';
 
 describe('acl.service — pure buildDocumentAclWhereClause', () => {
-  it('grants admins access regardless of tags/groups (returns empty clause)', () => {
+  // Ticket #34 -- the clause now answers `tagRule AND spaceRule`. Admins
+  // still bypass the tag half, but nobody bypasses the space half, so an
+  // admin no longer gets an empty (unrestricted) clause.
+  it('gives admins the space rule only, with no tag predicate', () => {
     const params: any[] = [];
     const clause = buildDocumentAclWhereClause({ userId: 'any-user', role: 'admin' }, params);
-    expect(clause).toBe('');
-    expect(params).toEqual([]);
+    expect(clause).toContain('space_members');
+    expect(clause).not.toContain('group_tag_permissions');
+    expect(params).toEqual(['any-user']);
   });
 
-  it('appends a userId param and a NOT EXISTS clause for non-admins', () => {
+  it('combines the tag rule and the space rule for non-admins', () => {
     const params: any[] = ['already-here'];
     const clause = buildDocumentAclWhereClause({ userId: 'user-123', role: 'editor' }, params);
     expect(clause).toContain('NOT EXISTS');
-    expect(params).toEqual(['already-here', 'user-123']);
+    expect(clause).toContain('space_members');
+    // One userId param per half, both appended after the caller's own.
+    expect(params).toEqual(['already-here', 'user-123', 'user-123']);
     expect(clause).toContain('$2');
+    expect(clause).toContain('$3');
   });
 });
 

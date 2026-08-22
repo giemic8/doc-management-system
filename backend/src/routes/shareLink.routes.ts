@@ -148,7 +148,16 @@ export const publicShareRouter = Router();
 async function fetchLinkWithDocument(token: string) {
   const result = await query(
     `SELECT l.*, d.title AS document_title, d.file_path, d.derived_file_path, d.original_filename,
-            d.mime_type, d.is_encrypted, d.encryption_iv, d.encryption_auth_tag, d.status AS document_status
+            d.mime_type, d.is_encrypted, d.encryption_iv, d.encryption_auth_tag, d.status AS document_status,
+            d.space_id AS document_space_id,
+            -- Ticket #34 -- a guest link is a delegation of the creator's own
+            -- access. Once the creator is no longer in the document's space
+            -- (removed, or their account gone), nobody is vouching for the
+            -- link any more and it stops opening.
+            (d.space_id IS NULL OR EXISTS (
+               SELECT 1 FROM space_members sm
+               WHERE sm.space_id = d.space_id AND sm.user_id = l.created_by
+             )) AS creator_space_access
      FROM document_share_links l
      JOIN documents d ON d.id = l.document_id
      WHERE l.token = $1;`,
@@ -185,6 +194,15 @@ publicShareRouter.get('/:token/info', async (req: Request, res: Response) => {
     if (link.document_status === 'trashed') {
       await logGuestAccess(link.document_id, 'guest_share_document_trashed', link.id, req);
       return res.status(410).json({ valid: false, error: 'Document is no longer available', reason: 'document_deleted' });
+    }
+
+    // Ticket #34 -- the person who shared this no longer has access to the
+    // document's space, so neither does their guest.
+    if (link.creator_space_access === false) {
+      await logGuestAccess(link.document_id, 'guest_share_space_access_revoked', link.id, req);
+      return res
+        .status(410)
+        .json({ valid: false, error: 'Document is no longer available', reason: 'space_access_revoked' });
     }
 
     const validity = isShareLinkValid(link as ShareLinkRow);
@@ -233,6 +251,15 @@ publicShareRouter.post('/:token/verify', async (req: Request, res: Response) => 
     if (link.document_status === 'trashed') {
       await logGuestAccess(link.document_id, 'guest_share_document_trashed', link.id, req);
       return res.status(410).json({ valid: false, error: 'Document is no longer available', reason: 'document_deleted' });
+    }
+
+    // Ticket #34 -- the person who shared this no longer has access to the
+    // document's space, so neither does their guest.
+    if (link.creator_space_access === false) {
+      await logGuestAccess(link.document_id, 'guest_share_space_access_revoked', link.id, req);
+      return res
+        .status(410)
+        .json({ valid: false, error: 'Document is no longer available', reason: 'space_access_revoked' });
     }
 
     const validity = isShareLinkValid(link as ShareLinkRow);
@@ -289,6 +316,15 @@ publicShareRouter.get('/:token/download', async (req: Request, res: Response) =>
     if (link.document_status === 'trashed') {
       await logGuestAccess(link.document_id, 'guest_share_document_trashed', link.id, req);
       return res.status(410).json({ valid: false, error: 'Document is no longer available', reason: 'document_deleted' });
+    }
+
+    // Ticket #34 -- the person who shared this no longer has access to the
+    // document's space, so neither does their guest.
+    if (link.creator_space_access === false) {
+      await logGuestAccess(link.document_id, 'guest_share_space_access_revoked', link.id, req);
+      return res
+        .status(410)
+        .json({ valid: false, error: 'Document is no longer available', reason: 'space_access_revoked' });
     }
 
     const validity = isShareLinkValid(link as ShareLinkRow);

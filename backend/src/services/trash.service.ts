@@ -4,6 +4,7 @@ import { config } from '../config';
 import { isRetentionLocked } from './retention.service';
 import { parseBackupStatusFile, BackupStatus } from './backupStatus.service';
 import { dispatchWebhookEvent } from './webhookDispatch.service';
+import { buildSpaceVisibilityWhereClause, isPrivateSpace } from './spaceVisibility.service';
 
 /**
  * Ticket #33 -- 90-day trash and controlled purge.
@@ -46,6 +47,8 @@ export const TRASH_RETENTION_DAYS = 90;
 export interface TrashActor {
   id?: string;
   ip?: string;
+  /** Ticket #34 -- needed by the bulk sweep to apply the space rule. */
+  role?: string;
 }
 
 export type TrashErrorReason =
@@ -53,7 +56,8 @@ export type TrashErrorReason =
   | 'not_trashed'
   | 'retention_locked'
   | 'active_share_links'
-  | 'backup_unavailable';
+  | 'backup_unavailable'
+  | 'space_forbidden';
 
 /** Carries the HTTP shape of a refused trash/purge so routes stay thin. */
 export class TrashError extends Error {
@@ -199,13 +203,20 @@ export async function trashDocument(documentId: string, actor: TrashActor) {
   });
 
   // `document.deleted` is the event subscribers already register for; the
-  // trash is what deletion means now, so this is where it fires.
-  dispatchWebhookEvent('document.deleted', {
-    id: trashed.id,
-    title: trashed.title,
-    status: trashed.status,
-    purgeAfter: trashed.purge_after,
-  }).catch((err) => console.error('Webhook dispatch failed for document.deleted:', err));
+  // trash is what deletion means now, so this is where it fires. Ticket #34
+  // holds it back for private spaces: webhook endpoints are configured by
+  // the administrator, and the title is content.
+  isPrivateSpace(trashed.space_id)
+    .then((isPrivate) => {
+      if (isPrivate) return;
+      return dispatchWebhookEvent('document.deleted', {
+        id: trashed.id,
+        title: trashed.title,
+        status: trashed.status,
+        purgeAfter: trashed.purge_after,
+      });
+    })
+    .catch((err) => console.error('Webhook dispatch failed for document.deleted:', err));
 
   return trashed;
 }
@@ -373,14 +384,32 @@ export interface PurgeExpiredResult {
  * content on day 91. Documents that fail a guard are reported, not forced.
  */
 export async function purgeExpiredDocuments(actor: TrashActor, options: PurgeOptions = {}): Promise<PurgeExpiredResult> {
+  // Ticket #34 -- a sweep must not destroy what its runner cannot even see.
+  // Documents in someone else's private space are reported as skipped
+  // rather than silently omitted, so an admin knows the sweep was partial.
+  const params: any[] = [];
+  const deletableClause = buildSpaceVisibilityWhereClause(
+    { userId: actor.id ?? '', role: actor.role ?? '' },
+    params,
+    'delete'
+  );
   const candidates = await query(
-    `SELECT id FROM documents
+    `SELECT id, (${deletableClause}) AS may_purge FROM documents d
      WHERE status = 'trashed' AND purge_after IS NOT NULL AND purge_after <= CURRENT_TIMESTAMP
-     ORDER BY purge_after ASC;`
+     ORDER BY purge_after ASC;`,
+    params
   );
 
   const result: PurgeExpiredResult = { purged: [], skipped: [] };
   for (const row of candidates.rows) {
+    if (row.may_purge !== true) {
+      result.skipped.push({
+        documentId: row.id,
+        reason: 'space_forbidden',
+        error: 'Document lives in a space you cannot purge from',
+      });
+      continue;
+    }
     try {
       result.purged.push(await purgeDocument(row.id, actor, options));
     } catch (error: any) {

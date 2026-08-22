@@ -19,6 +19,12 @@ import {
   TrashListResult,
   PurgeResult,
   PurgeExpiredResult,
+  Space,
+  SpaceDetail,
+  SpaceKind,
+  DirectoryUser,
+  EmergencyRequest,
+  EmergencyAccessListResult,
 } from '../types';
 
 const API_BASE = '/api';
@@ -366,4 +372,93 @@ export async function purgeDocument(
 export async function purgeExpiredDocuments(): Promise<PurgeExpiredResult> {
   const res = await api.post('/documents/trash/purge-expired', { confirmation: 'purge-expired' });
   return res.data;
+}
+
+// Ticket #34 — private and shared family spaces.
+export async function fetchSpaces(): Promise<Space[]> {
+  const res = await api.get('/spaces');
+  return res.data.spaces;
+}
+
+/** Creating a shared space is admin-only; a private space is open to everyone. */
+export async function createSpace(name: string, kind: SpaceKind): Promise<Space> {
+  const res = await api.post('/spaces', { name, kind });
+  return res.data.space;
+}
+
+/**
+ * Everyone on the household server, for the member and trusted-contact
+ * pickers. Deliberately open to every authenticated role — nominating a
+ * trusted contact is the private-space owner's decision, not an admin's.
+ */
+export async function fetchHouseholdDirectory(): Promise<DirectoryUser[]> {
+  const res = await api.get('/spaces/directory');
+  return res.data.users;
+}
+
+export async function fetchSpaceDetail(spaceId: string): Promise<SpaceDetail> {
+  const res = await api.get(`/spaces/${spaceId}`);
+  return res.data.space;
+}
+
+/** Rejects with 409 `space_not_empty` while the space still holds documents. */
+export async function deleteSpace(spaceId: string): Promise<void> {
+  await api.delete(`/spaces/${spaceId}`);
+}
+
+export async function addSpaceMember(
+  spaceId: string,
+  userId: string,
+  permissions?: { canWrite?: boolean; canDelete?: boolean }
+): Promise<void> {
+  await api.post(`/spaces/${spaceId}/members`, { userId, ...permissions });
+}
+
+export async function removeSpaceMember(spaceId: string, userId: string): Promise<void> {
+  await api.delete(`/spaces/${spaceId}/members/${userId}`);
+}
+
+/**
+ * Nominating a trusted contact grants nothing on its own — it only makes the
+ * two-person emergency unlock possible later. Owner-only, private spaces only.
+ */
+export async function addTrustedContact(spaceId: string, userId: string): Promise<void> {
+  await api.post(`/spaces/${spaceId}/trusted-contacts`, { userId });
+}
+
+export async function removeTrustedContact(spaceId: string, userId: string): Promise<void> {
+  await api.delete(`/spaces/${spaceId}/trusted-contacts/${userId}`);
+}
+
+export async function fetchEmergencyRequests(): Promise<EmergencyAccessListResult> {
+  const res = await api.get('/emergency-access');
+  return res.data;
+}
+
+/** `reason` must be at least 10 characters, `hours` between 1 and the server's maxHours. */
+export async function requestEmergencyAccess(
+  spaceId: string,
+  reason: string,
+  hours: number
+): Promise<EmergencyRequest> {
+  const res = await api.post('/emergency-access', { spaceId, reason, hours });
+  return res.data.request;
+}
+
+/** Approving your own request is refused with 403 `self_approval` — a second person must decide. */
+export async function decideEmergencyRequest(
+  requestId: string,
+  decision: 'approve' | 'deny' | 'revoke'
+): Promise<EmergencyRequest> {
+  const res = await api.post(`/emergency-access/${requestId}/${decision}`);
+  return res.data.request;
+}
+
+/** `spaceId: null` moves the document back into the common area. */
+export async function moveDocumentToSpace(
+  documentId: string,
+  spaceId: string | null
+): Promise<DocumentItem> {
+  const res = await api.put(`/documents/${documentId}/space`, { spaceId });
+  return res.data.document;
 }

@@ -11,6 +11,10 @@ DocVault is a self-hosted document management system. It ingests files, preserve
 - **Processing** — OCR, metadata extraction, tagging, chunking, and embedding performed by Python worker.
 - **Tag** — document classification and ACL attachment point.
 - **Access group** — user collection granted read, write, or delete permission through tag permissions. Admin bypasses tag ACLs.
+- **Space** — ownership dimension of a document, independent of tags. A **private space** has exactly one member, its owner, and is unreadable to everyone else including admins. A **shared space** is readable by its explicit members, and admins bypass it as they bypass tag ACLs. `space_id IS NULL` is the **common area**: tag ACLs alone govern it.
+- **Trusted contact** — person the owner of a private space nominates in advance as able to take part in an emergency unlock. Nomination grants no access by itself.
+- **Emergency access** — time-bounded, read-only, audited unlock of one private space. A trusted contact requests it, a second, different trusted person approves it, and it expires on a clock that starts at approval.
+- **Recovery code** — single-use secret a user generates for their own account, shown once and stored hashed, redeemable to set a new password without an administrator.
 - **Retention lock** — active `retention_until` or `legal_hold`; blocks destructive document changes.
 - **Trash** — reversible delete. Document moves to `trashed`, keeps every stored byte, and stays restorable until `purge_after` (90 days) and beyond, as long as nobody purges it.
 - **Purge** — irreversible destruction of a trashed document: both durable copies, derived files, thumbnails, versions, and the record itself. Admin-only, needs explicit confirmation, and is refused under retention lock, active share links, or an unhealthy backup state.
@@ -41,8 +45,11 @@ Split and merged PDFs enter lifecycle as **Ready**. Archive state remains separa
 5. Encrypted files are decrypted only into temporary files and removed after use.
 6. Public share routes authenticate opaque share tokens, never normal user JWTs.
 7. Calendar feed routes authenticate revocable feed tokens because calendar clients cannot send JWT headers.
-8. Search, RAG, analytics, contract lists, calendar feeds, exports, and guest shares exclude archived and trashed documents, and must honor same ACL rules as document listing.
+8. Search, RAG, analytics, contract lists, calendar feeds, exports, and guest shares exclude archived and trashed documents, and must honor same ACL rules as document listing. Audit-log rows about an unreadable document keep the event and lose the title.
 9. Deleting a document trashes it; content is destroyed only by an explicitly authorized purge, and only from `trashed`.
+10. Every document access also applies the space rule, and admins are inside it: a private space is readable only by its owner. Derived documents inherit their source's space, and a merge across spaces is refused.
+11. The only route into another user's private space is emergency access: a nominated trusted contact requests it, a second, different trusted person approves it, it expires, it grants read only, and both the grant and every document opened under it are audited.
+12. Account recovery runs on the owner's own single-use recovery codes. No route lets an administrator reset another user's password or generate their codes.
 
 ## Module map
 

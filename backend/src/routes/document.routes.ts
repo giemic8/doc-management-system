@@ -19,10 +19,25 @@ import QRCode from 'qrcode';
 import { config } from '../config';
 import { buildDocumentAclWhereClause, canUserAccessDocument, canUserModifyDocument, canUserDeleteDocument, logUnauthorizedAccess } from '../services/acl.service';
 import { requireDocumentPermission } from '../middleware/documentAcl';
+import { assertCanWriteToSpace, SpaceActor, SpaceError } from '../services/space.service';
+import { isPrivateSpace } from '../services/spaceVisibility.service';
 import { rejectTrashedDocuments } from '../middleware/documentLifecycle';
 
 const router = Router();
 const upload = multer({ dest: path.join(__dirname, '../../../storage/tmp') });
+
+const SPACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function spaceActorFrom(req: AuthRequest): SpaceActor {
+  return { id: req.user!.id, role: req.user!.role, ip: req.ip };
+}
+
+/** Multipart form fields arrive as strings, so "" and "null" both mean the common area. */
+function normalizeSpaceId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed === '' || trimmed === 'null' ? null : trimmed;
+}
 
 // GET /api/documents (Search, filter, paginate)
 router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
@@ -55,6 +70,21 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
     if (status) {
       params.push(status);
       queryText += ` AND d.status = $${params.length}`;
+    }
+
+    // Ticket #34 -- ?space_id=<uuid> narrows to one family space, and
+    // ?space_id=none to the common area. Neither widens visibility: the ACL
+    // clause below still decides what the user may see.
+    const spaceFilter = req.query.space_id;
+    if (typeof spaceFilter === 'string' && spaceFilter.length > 0) {
+      if (spaceFilter === 'none') {
+        queryText += ` AND d.space_id IS NULL`;
+      } else if (SPACE_ID_PATTERN.test(spaceFilter)) {
+        params.push(spaceFilter);
+        queryText += ` AND d.space_id = $${params.length}`;
+      } else {
+        return res.status(400).json({ error: 'space_id must be a space id or "none"' });
+      }
     }
 
     // Ticket #19 -- Granular Tag ACLs: hide documents whose tags aren't
@@ -114,10 +144,13 @@ router.post(
       const partHash = crypto.createHash('sha256').update(part.bytes).digest('hex');
 
       const insertRes = await query(
-        `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by, doc_type, sender, recipient)
-         VALUES ($1, $1, $2, $3, 'application/pdf', $4, 'ready', $5, $6, $7, $8)
+        // Ticket #34 -- the parts stay in the source document's space. A
+        // split that landed in the common area would publish the contents
+        // of a private document to the whole household.
+        `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by, doc_type, sender, recipient, space_id)
+         VALUES ($1, $1, $2, $3, 'application/pdf', $4, 'ready', $5, $6, $7, $8, $9)
          RETURNING *;`,
-        [partTitle, partPath, part.bytes.length, partHash, req.user?.id, doc.doc_type, doc.sender, doc.recipient]
+        [partTitle, partPath, part.bytes.length, partHash, req.user?.id, doc.doc_type, doc.sender, doc.recipient, doc.space_id]
       );
       createdDocs.push(insertRes.rows[0]);
     }
@@ -160,6 +193,19 @@ router.post(
     }
     const docs = docsRes.rows;
 
+    // Ticket #34 -- a merge produces one document, which can only live in
+    // one space. Merging across spaces would either publish private content
+    // or lock shared content away, so it is refused rather than guessed.
+    const sourceSpaces = [...new Set(docs.map((d: any) => d.space_id ?? null))];
+    if (sourceSpaces.length > 1) {
+      return res.status(409).json({
+        error: 'All documents must be in the same space to be merged',
+        reason: 'mixed_spaces',
+        spaceIds: sourceSpaces,
+      });
+    }
+    const mergedSpaceId = sourceSpaces[0] ?? null;
+
     const buffers = docs.map((d: any) => fs.readFileSync(d.file_path));
     const mergedBytes = await mergePdfs(buffers);
     const mergedHash = crypto.createHash('sha256').update(mergedBytes).digest('hex');
@@ -169,10 +215,10 @@ router.post(
     fs.writeFileSync(mergedPath, mergedBytes);
 
     const insertRes = await query(
-      `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by)
-       VALUES ($1, $1, $2, $3, 'application/pdf', $4, 'ready', $5)
+      `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by, space_id)
+       VALUES ($1, $1, $2, $3, 'application/pdf', $4, 'ready', $5, $6)
        RETURNING *;`,
-      [mergedTitle, mergedPath, mergedBytes.length, mergedHash, req.user?.id]
+      [mergedTitle, mergedPath, mergedBytes.length, mergedHash, req.user?.id, mergedSpaceId]
     );
     const mergedDoc = insertRes.rows[0];
 
@@ -374,6 +420,20 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req: Aut
     const originalName = req.file.originalname;
     const mimeType = req.file.mimetype || 'application/pdf';
     const requestedKey = req.get('Idempotency-Key');
+
+    // Ticket #34 -- an upload may be filed straight into a family space.
+    // Omitting spaceId keeps the pre-existing behaviour: the common area.
+    const spaceId = normalizeSpaceId(req.body?.spaceId);
+    try {
+      await assertCanWriteToSpace(spaceActorFrom(req), spaceId);
+    } catch (spaceErr: any) {
+      if (spaceErr instanceof SpaceError) {
+        fs.unlink(req.file.path, () => {});
+        return res.status(spaceErr.status).json({ error: spaceErr.message, reason: spaceErr.reason });
+      }
+      throw spaceErr;
+    }
+
     const { document: doc, replayed } = await ingestDocument({
       stagedPath: req.file.path,
       source: 'browser',
@@ -381,9 +441,12 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req: Aut
       filename: originalName,
       mimeType,
       createdBy: req.user?.id,
+      spaceId,
     });
 
-    if (!replayed) {
+    // Ticket #34 -- a webhook endpoint is administrator-configured outbound
+    // plumbing, so a private document's title must not travel down it.
+    if (!replayed && !(await isPrivateSpace(spaceId))) {
       dispatchWebhookEvent('document.created', { id: doc.id, title: doc.title, status: doc.status }).catch((err) =>
         console.error('Webhook dispatch failed for document.created:', err)
       );
@@ -557,6 +620,62 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
     return res.status(500).json({ error: err.message });
   }
 });
+
+// PUT /api/documents/:id/space { spaceId } -- ticket #34, move a document
+// between the common area and a family space. Moving changes who can read
+// the document, so it needs write permission on BOTH ends: on the document
+// (which the space rule already gates) and on the destination space.
+router.put(
+  '/:id/space',
+  authenticateToken,
+  requireDocumentPermission('write', (req) => req.params.id, 'move_document_space'),
+  rejectTrashedDocuments((req) => req.params.id),
+  async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+    // `spaceId: null` is the explicit "move to the common area" — a missing
+    // field is a client bug, not a request to publish the document.
+    const raw = req.body?.spaceId;
+    if (raw !== null && typeof raw !== 'string') {
+      return res.status(400).json({ error: 'spaceId must be a space id or null for the common area' });
+    }
+    const targetSpaceId = normalizeSpaceId(raw);
+    if (targetSpaceId !== null && !SPACE_ID_PATTERN.test(targetSpaceId)) {
+      return res.status(400).json({ error: 'spaceId must be a space id or null for the common area' });
+    }
+
+    try {
+      const current = await query(`SELECT space_id FROM documents WHERE id = $1;`, [id]);
+      if (current.rows.length === 0) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+
+      await assertCanWriteToSpace(spaceActorFrom(req), targetSpaceId);
+
+      const updated = await query(
+        `UPDATE documents SET space_id = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *;`,
+        [id, targetSpaceId]
+      );
+
+      await query(
+        `INSERT INTO audit_logs (document_id, user_id, action, details, ip_address)
+         VALUES ($1, $2, 'document_space_changed', $3, $4);`,
+        [
+          id,
+          req.user?.id,
+          JSON.stringify({ fromSpaceId: current.rows[0].space_id ?? null, toSpaceId: targetSpaceId }),
+          req.ip ?? null,
+        ]
+      );
+
+      return res.json({ document: updated.rows[0] });
+    } catch (err: any) {
+      if (err instanceof SpaceError) {
+        return res.status(err.status).json({ error: err.message, reason: err.reason, ...err.details });
+      }
+      return res.status(500).json({ error: err.message });
+    }
+  }
+);
 
 // PUT /api/documents/:id/custom-fields (validate against the doc_type's schema, then save)
 router.put(

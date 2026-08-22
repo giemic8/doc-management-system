@@ -24,6 +24,8 @@ export async function createTestDocument(overrides?: {
   title?: string;
   createdBy?: string;
   status?: string;
+  /** Ticket #34 -- file the document into a family space instead of the common area. */
+  spaceId?: string | null;
 }) {
   const { filePath, bytes } = overrides?.filePath
     ? { filePath: overrides.filePath, bytes: fs.readFileSync(overrides.filePath) }
@@ -33,11 +35,47 @@ export async function createTestDocument(overrides?: {
   const title = overrides?.title ?? 'Test Document.pdf';
 
   const res = await query(
-    `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by)
-     VALUES ($1, $1, $2, $3, 'application/pdf', $4, $5, $6)
+    `INSERT INTO documents (title, original_filename, file_path, file_size, mime_type, file_hash, status, created_by, space_id)
+     VALUES ($1, $1, $2, $3, 'application/pdf', $4, $5, $6, $7)
      RETURNING *;`,
-    [title, filePath, bytes.length, fileHash, overrides?.status ?? 'ready', overrides?.createdBy ?? null]
+    [
+      title,
+      filePath,
+      bytes.length,
+      fileHash,
+      overrides?.status ?? 'ready',
+      overrides?.createdBy ?? null,
+      overrides?.spaceId ?? null,
+    ]
   );
 
   return res.rows[0];
+}
+
+/**
+ * Ticket #34 -- creates a space directly (bypassing the routes) with its
+ * owner already recorded as a member, matching what createSpace does.
+ */
+export async function createTestSpace(overrides: {
+  name?: string;
+  kind?: 'private' | 'shared';
+  ownerId: string;
+}) {
+  const name = overrides.name ?? `Space ${crypto.randomUUID().slice(0, 8)}`;
+  const kind = overrides.kind ?? 'private';
+
+  const res = await query(`INSERT INTO spaces (name, kind, owner_id) VALUES ($1, $2, $3) RETURNING *;`, [
+    name,
+    kind,
+    overrides.ownerId,
+  ]);
+  const space = res.rows[0];
+
+  await query(
+    `INSERT INTO space_members (space_id, user_id, can_write, can_delete, added_by)
+     VALUES ($1, $2, true, true, $2);`,
+    [space.id, overrides.ownerId]
+  );
+
+  return space;
 }

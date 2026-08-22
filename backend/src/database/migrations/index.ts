@@ -2,6 +2,7 @@ import { initialSchema } from './v001_initial_schema';
 import { canonicalIngestion } from './v002_canonical_ingestion';
 import { dualCopyDurability } from './v003_dual_copy_durability';
 import { trashAndPurge } from './v004_trash_and_purge';
+import { familySpaces } from './v005_family_spaces';
 
 export interface Migration {
   version: number;
@@ -9,4 +10,10 @@ export interface Migration {
   sql: string;
 }
 
-export const migrations: Migration[] = [initialSchema, canonicalIngestion, dualCopyDurability, trashAndPurge];
+export const migrations: Migration[] = [
+  initialSchema,
+  canonicalIngestion,
+  dualCopyDurability,
+  trashAndPurge,
+  familySpaces,
+];
