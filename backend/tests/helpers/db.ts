@@ -43,9 +43,22 @@ export async function resetDatabase() {
       space_members,
       spaces,
       user_recovery_codes,
+      document_extractions,
+      review_items,
+      document_duplicate_links,
+      review_settings,
+      ops_alert_deliveries,
+      ops_incidents,
+      ops_component_health,
+      ops_alert_settings,
       users
     RESTART IDENTITY CASCADE;
   `);
+
+  // Ticket #35 -- the thresholds are a singleton row seeded by the migration,
+  // and TRUNCATE ... CASCADE takes it with the users it references. Put it
+  // back at its defaults so every test file starts from the documented bar.
+  await query(`INSERT INTO review_settings (singleton) VALUES (TRUE) ON CONFLICT DO NOTHING;`);
 
   // Re-run idempotent reference/development seeds.
   await initDatabase();

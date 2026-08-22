@@ -21,6 +21,12 @@ DocVault is a self-hosted document management system. It ingests files, preserve
 - **Share link** — revocable guest capability with optional password, expiry, and download limit.
 - **Workflow** — stored trigger, conditions, and actions evaluated around document ingestion.
 - **Audit event** — append-only record of security-sensitive or document-changing action.
+- **Extraction proposal** — one extracted field value together with the confidence it was extracted at. It reaches the document only if it clears the configured bar; otherwise it is offered to a person and the column stays empty.
+- **Confidence threshold** — configured bar in `review_settings` that decides whether a proposal is applied, shown to a reviewer, or withheld as too weak to suggest. Compared in the database so worker and backend cannot disagree.
+- **Review inbox** — the open questions about documents: uncertain fields and duplicate candidates. An open item holds its document in `review`.
+- **Duplicate candidate** — a pair of documents recorded as possibly the same content. Exact pairs are proven by hash, similar pairs are scored. A candidate is never merged; a reviewer links it or separates it, and the answer is remembered for that pair.
+- **Component health** — the stored result of the latest probe of one dependency: status, last success, current failure, measured metrics, and the operator action that would fix it.
+- **Incident** — one ongoing operational problem. At most one is open per component and kind; a repeat observation bumps its counter instead of raising a second one, and its resolution sends exactly one recovery notice.
 
 ## Ingestion language
 
@@ -50,6 +56,11 @@ Split and merged PDFs enter lifecycle as **Ready**. Archive state remains separa
 10. Every document access also applies the space rule, and admins are inside it: a private space is readable only by its owner. Derived documents inherit their source's space, and a merge across spaces is refused.
 11. The only route into another user's private space is emergency access: a nominated trusted contact requests it, a second, different trusted person approves it, it expires, it grants read only, and both the grant and every document opened under it are audited.
 12. Account recovery runs on the owner's own single-use recovery codes. No route lets an administrator reset another user's password or generate their codes.
+13. Extracted metadata reaches a document only through the configured confidence thresholds. What does not clear them stays a proposal, and the document stays in `review` until a person accepts, corrects, retries or dismisses it.
+14. Duplicate detection never merges, replaces or deletes a document, and never reports a counterpart from another space.
+15. Review state — open items, proposals, and the similarity marker — is database state, so a worker or provider restart changes nothing about what is still owed.
+16. Operational health and alerts are expressed in counts, ages and bytes. They never carry a document title, filename, sender or space name, so an administrator dashboard cannot become a side channel around tag ACLs or the space rule.
+17. An alert is recorded locally before any delivery is attempted, and every attempt records its outcome. A missing or broken delivery channel leaves the incident visible rather than silent.
 
 ## Module map
 

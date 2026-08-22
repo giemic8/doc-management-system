@@ -5,6 +5,7 @@ import { query } from '../database/db';
 import { config } from '../config';
 import { encryptFile } from './fileEncryption.service';
 import { StorageService } from './storage.service';
+import { recordExactDuplicate } from './duplicateDetection.service';
 
 export type DocumentState =
   | 'received'
@@ -299,6 +300,13 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
       // discard it -- only the transition to 'durable' is still pending.
       await commitReplica(documentId, targetPath, replicaTargetPath);
     }
+
+    // Ticket #35 -- the hash is already in hand, so an exact duplicate is
+    // known here and recorded as a question for a reviewer. The bytes were
+    // not written a second time (the branch above hardlinks into the
+    // existing verified copies), and nothing is merged: the household is
+    // told it already has this file, and decides.
+    await recordExactDuplicate(documentId, fileHash);
 
     await transitionDocument(documentId, 'durable');
     const processing = await transitionDocument(documentId, 'processing');

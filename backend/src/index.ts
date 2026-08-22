@@ -4,6 +4,8 @@ import { StorageService } from './services/storage.service';
 import { WatchfolderService } from './services/watchfolder.service';
 import { startEmailImportScheduler } from './services/emailImportScheduler.service';
 import { startContractAlertScheduler } from './services/contractAlertScheduler.service';
+import { startSimilarityScanScheduler } from './services/similarityScanScheduler.service';
+import { startOpsAlertScheduler } from './services/opsAlertScheduler.service';
 import { app } from './app';
 
 async function main() {
@@ -13,6 +15,8 @@ async function main() {
     WatchfolderService.startWatching();
     startEmailImportScheduler();
     startContractAlertScheduler();
+    startSimilarityScanScheduler();
+    startOpsAlertScheduler();
 
     app.listen(config.port, () => {
       console.log(`=======================================================`);

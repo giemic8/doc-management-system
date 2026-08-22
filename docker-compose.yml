@@ -82,6 +82,17 @@ services:
       # Must be a distinct host mount from STORAGE_PATH (different disk),
       # or the dual-copy write buys no real redundancy against disk failure.
       STORAGE_REPLICA_PATH: /app/storage-replica
+      # Ticket #37 — outbound SMTP for operations alerts. Empty SMTP_HOST
+      # keeps the channel switched off; incidents are still recorded and
+      # shown in the operations dashboard as undelivered.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      BACKUP_ALERT_EMAIL_FROM: ${BACKUP_ALERT_EMAIL_FROM:-}
     volumes:
       - ./storage:/app/storage
       - ${STORAGE_REPLICA_HOST_PATH:-./storage-replica}:/app/storage-replica

@@ -31,4 +31,18 @@ export const config = {
   // volume (see docker-compose.yml's backup_status volume, mounted
   // read-write into `backup` and read-only into `backend`).
   backupStatusPath: process.env.BACKUP_STATUS_PATH || path.join('/app/backup-status', 'last-backup-status.json'),
+
+  // Outbound SMTP for operations alerts (Ticket #37). Deliberately empty by
+  // default: a household install must run with no mail server at all, in
+  // which case incidents stay visible in the operations dashboard and every
+  // alert is recorded as "nicht zugestellt" rather than silently dropped.
+  // SMTP_USERNAME/SMTP_PASSWORD/BACKUP_ALERT_EMAIL_FROM already exist for the
+  // backup container's failure mail (backup/scripts/notify-failure.sh), so
+  // they are accepted as fallbacks here: one household mail account, not two.
+  smtpHost: process.env.SMTP_HOST || '',
+  smtpPort: parseInt(process.env.SMTP_PORT || '587', 10),
+  smtpSecure: process.env.SMTP_SECURE === 'true',
+  smtpUser: process.env.SMTP_USER || process.env.SMTP_USERNAME || '',
+  smtpPassword: process.env.SMTP_PASSWORD || '',
+  smtpFrom: process.env.SMTP_FROM || process.env.BACKUP_ALERT_EMAIL_FROM || 'docvault@localhost',
 };
