@@ -1,0 +1,137 @@
+# paperless-ngx for the family archive.
+#
+# The LLM backend is chosen by one variable, AI_BACKEND, which selects the
+# env file mounted into the webserver:
+#
+#   AI_BACKEND=claude docker compose up -d
+#   AI_BACKEND=ollama docker compose --profile ollama up -d
+#
+# Read README.md before the first start. Settings entered under
+# Settings -> Application Configuration in the admin UI take precedence
+# over these variables, which is the one way to make the switch silently
+# stop working.
+
+services:
+  broker:
+    image: docker.io/library/redis:7
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db:
+    image: docker.io/library/postgres:17
+    restart: unless-stopped
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless -d paperless"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Office documents (docx/xlsx/odt) -> PDF. DocVault could not read these
+  # at all; paperless converts them on ingest.
+  gotenberg:
+    image: docker.io/gotenberg/gotenberg:8
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--chromium-disable-javascript=true"
+      - "--chromium-allow-list=file:///tmp/.*"
+
+  tika:
+    image: docker.io/apache/tika:latest
+    restart: unless-stopped
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+      gotenberg:
+        condition: service_started
+      tika:
+        condition: service_started
+    ports:
+      - "${PAPERLESS_PORT:-8000}:8000"
+    volumes:
+      # Point these at the ZFS mirror in production. media/ holds the
+      # originals, the PDF/A archive versions and thumbnails; data/ holds
+      # the search index and the embedding index.
+      - ${PAPERLESS_DATA_PATH:-./data}:/usr/src/paperless/data
+      - ${PAPERLESS_MEDIA_PATH:-./media}:/usr/src/paperless/media
+      - ${PAPERLESS_EXPORT_PATH:-./export}:/usr/src/paperless/export
+      - ${PAPERLESS_CONSUME_PATH:-./consume}:/usr/src/paperless/consume
+    env_file:
+      # The whole switch. Missing file => compose fails loudly rather than
+      # starting with AI silently off.
+      - ./ai/${AI_BACKEND:-claude}.env
+    environment:
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_DBHOST: db
+      PAPERLESS_DBNAME: paperless
+      PAPERLESS_DBUSER: paperless
+      PAPERLESS_DBPASS: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY:?set PAPERLESS_SECRET_KEY in .env}
+      PAPERLESS_URL: ${PAPERLESS_URL:-http://localhost:8000}
+      PAPERLESS_TIME_ZONE: ${PAPERLESS_TIME_ZONE:-Europe/Berlin}
+      PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER:-}
+      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:-}
+
+      PAPERLESS_OCR_LANGUAGE: deu+eng
+      PAPERLESS_OCR_LANGUAGES: deu eng
+
+      # Human-readable tree on disk: 2026/Finanzamt/2026-03-14_Steuerbescheid.pdf
+      # If paperless ever goes away, the archive is still navigable.
+      PAPERLESS_FILENAME_FORMAT: "{{ created_year }}/{{ correspondent }}/{{ created }}_{{ title }}"
+      PAPERLESS_FILENAME_FORMAT_REMOVE_NONE: "true"
+
+      PAPERLESS_TIKA_ENABLED: 1
+      PAPERLESS_TIKA_ENDPOINT: http://tika:9998
+      PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
+
+      PAPERLESS_CONSUMER_POLLING_INTERVAL: ${PAPERLESS_CONSUMER_POLLING_INTERVAL:-0}
+      PAPERLESS_CONSUMER_RECURSIVE: "true"
+      PAPERLESS_CONSUMER_SUBDIRS_AS_TAGS: "true"
+
+      # Empty for ollama; the Anthropic key for claude. Kept out of the
+      # committed ai/*.env files on purpose.
+      PAPERLESS_AI_LLM_API_KEY: ${AI_API_KEY:-}
+
+      USERMAP_UID: ${USERMAP_UID:-1000}
+      USERMAP_GID: ${USERMAP_GID:-1000}
+
+  # Only started with --profile ollama. Nothing to run when Claude serves
+  # the extraction.
+  ollama:
+    image: docker.io/ollama/ollama:latest
+    profiles: ["ollama"]
+    restart: unless-stopped
+    volumes:
+      - ollamadata:/root/.ollama
+    # Uncomment on a host with the NVIDIA Container Toolkit installed:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  pgdata:
+  redisdata:
+  ollamadata:
