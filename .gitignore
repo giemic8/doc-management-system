@@ -1,37 +1,16 @@
-# Dependencies
-node_modules/
-__pycache__/
-.pytest_cache/
-*.pyc
-.venv/
-env/
-
-# Build outputs
-dist/
-build/
-.vite/
-
-# Environment files
+# Secrets
 .env
 .env.local
 
-# Backup service: real rclone credentials (see backup/rclone.conf.example)
+# Real rclone credentials for the backup container (see backup/rclone.conf.example)
 backup/rclone.conf
 
-# Storage (keep folder structure with gitkeep)
-storage/originals/*
-!storage/originals/.gitkeep
-storage/derived/*
-!storage/derived/.gitkeep
-storage/thumbnails/*
-!storage/thumbnails/.gitkeep
-storage/input/*
-!storage/input/.gitkeep
-
-# Ticket #31 — second independent copy of durable originals, created at
-# runtime by StorageService.initStorageDirectories(). Local dev default
-# mount; not source content.
-storage-replica/
+# paperless-ngx runtime data. These are bind-mount targets named in .env;
+# in production they live on the ZFS mirror, never in git.
+data/
+media/
+consume/
+export/
 backup-replica/
 
 # System & IDE
@@ -40,6 +19,9 @@ backup-replica/
 .vscode/
 .idea/
 .envrc
+/.mcp.json
+
+# Agent tooling caches
 .opencode/node_modules/
 .opencode/package.json
 .opencode/package-lock.json
@@ -49,8 +31,4 @@ backup-replica/
 .github/instructions/*.instructions.md
 .github/prompts/*.prompt.md
 .github/skills/*.md
-/.mcp.json
-
-# openpackage source cache: full external repo clones (own .git dirs),
-# never real submodules (no .gitmodules) -- local cache only.
 .openpackage/source-cache/
