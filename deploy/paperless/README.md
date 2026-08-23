@@ -1,7 +1,7 @@
 # paperless-ngx deployment
 
 The family archive. Replaces DocVault — see
-[ADR 0006](../../docs/adr/0006-paperless-ngx-replaces-docvault.md) for why.
+[ADR 0001](docs/adr/0001-paperless-ngx-replaces-docvault.md) for why.
 
 ## First start
 
