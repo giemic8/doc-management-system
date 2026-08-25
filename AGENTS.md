@@ -40,6 +40,11 @@ Secrets belong in `.env`, which is gitignored. `ai/*.env` files are
 committed and must stay free of keys; `PAPERLESS_AI_LLM_API_KEY` is
 injected from `AI_API_KEY` in `docker-compose.yml` for exactly that reason.
 
+New decisions get an ADR in `docs/adr/`, numbered `000N-title-with-dashes.md`
+continuing the existing sequence. The six records already there are the
+template — prose that states the decision and what it costs, not a form to
+fill in. Superseding one means writing the next, not editing the old.
+
 Keep the embedding backend identical across every `ai/*.env`. It defines
 the retrieval index, so a difference between them turns each backend switch
 into a full reindex.

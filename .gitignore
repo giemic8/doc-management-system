@@ -22,9 +22,6 @@ backup-replica/
 /.mcp.json
 
 # Agent tooling caches
-.opencode/node_modules/
-.opencode/package.json
-.opencode/package-lock.json
 .github/copilot-instructions.md
 .github/copilot/plans/*.md
 .github/git-commit-instructions.md
