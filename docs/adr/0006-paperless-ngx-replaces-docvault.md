@@ -14,7 +14,7 @@ DocVault was built from scratch without ever recording why an existing document 
 
 **The timing decides more than the arguments.** `storage/originals/` holds 102 files totalling 53 KB, median 82 bytes: test fixtures, every one. No real document has ever been filed. Migration cost is zero today and rises with the first genuine upload, so the eight completed release gates are sunk cost and not a reason to continue. They were also never validated against real usage, which is the other half of the same fact.
 
-**Durability moves down a layer, where it belongs.** Gate 3 acknowledged an upload only after two independent writes verified matching hashes, and paperless-ngx has no equivalent. It also has no need for one: a ZFS mirror protects originals, archive versions, the search index and the database at once, without any application knowing about it, and scrubbing covers the bitrot case the hash comparison was written for. The application-level guarantee was solving a storage problem in the wrong place — visibly so, since `STORAGE_REPLICA_HOST_PATH` defaults to a directory beside `STORAGE_PATH` on the same filesystem, where the second write buys nothing at all. The offsite third copy survives the move as `document_exporter` output, encrypted and synced by the existing backup container; a self-describing export restores into a different paperless version, which a raw dump bound to a schema version does not.
+**Durability moves down a layer, where it belongs.** Gate 3 acknowledged an upload only after two independent writes verified matching hashes, and paperless-ngx has no equivalent. It also has no need for one: a ZFS mirror protects originals, archive versions, the search index and the database at once, without any application knowing about it, and scrubbing covers the bitrot case the hash comparison was written for. The application-level guarantee was solving a storage problem in the wrong place — visibly so, since `STORAGE_REPLICA_HOST_PATH` defaults to a directory beside `STORAGE_PATH` on the same filesystem, where the second write buys nothing at all. The offsite third copy survives the move in the existing backup container, which keeps its GPG encryption, rclone sync and restore drill and only changes what it reads.
 
 **AI stays, and gets simpler.** paperless-ngx 3.x extracts title, correspondent, document type, tags, storage path and dates natively through `PAPERLESS_AI_LLM_BACKEND`, and `openai-like` accepts any OpenAI-compatible endpoint. Claude therefore attaches as configuration against Anthropic's compatibility layer, with no adapter and no third-party analyzer in the path — `paperless-ai` and `paperless-gpt` exist to add what this version already has, and neither supports Anthropic natively anyway. Anthropic publishes no embeddings endpoint, so retrieval embeddings run locally on the `huggingface` backend, which keeps document text for the index on the machine and costs nothing.
 
@@ -23,3 +23,19 @@ Two things are given up here rather than worked around. The confidence threshold
 **What survives becomes satellites.** Contract deadlines with the iCal feed, SEPA-QR, cancellation letters and DATEV export are domain logic that happened to be written against DocVault's database. They talk to the paperless REST API instead, as small separate services, and stop being reasons to own a document management system.
 
 **This decision is revisited if** a private space becomes a real requirement between people who do not share operator access, or a business makes GoBD-compliant archiving mandatory. Neither is reachable from paperless-ngx by configuration, and both would mean choosing again rather than patching.
+
+**Correction, made while implementing the above.** This record first said the
+offsite copy would be `document_exporter` output, because a self-describing
+export restores into a newer paperless version where a schema-bound dump does
+not. That was written without checking where the command lives: it is a Django
+management command inside the webserver container, and paperless-ngx has no
+built-in scheduler for it. Reaching it from the backup container means mounting
+the docker socket, which is root on the host — too high a price for a household
+NAS, paid nightly, to save a `pg_dump`. So the scheduled backup is `pg_dump`
+plus a tar of `media/`, which the backup container can do with a read-only mount
+and no new privilege, and which restores into the same paperless version — the
+case that actually occurs. `document_exporter` remains the documented manual
+path for moving an archive between versions. The consequence accepted here is a
+small consistency window: a document filed between the dump and the tar can land
+in one and not the other, leaving one orphaned file or one row pointing at a
+missing file, which a drill surfaces and a re-run fixes.

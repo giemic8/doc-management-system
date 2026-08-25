@@ -98,18 +98,35 @@ dual-copy write never did.
 
 ## Backup
 
-Snapshots are not backup. The offsite copy is `document_exporter` output —
-a self-describing bundle of files plus `manifest.json` that restores into a
-different paperless version, which a raw SQL dump bound to a schema version
-does not.
+Snapshots are not backup. The `backup` container runs nightly and produces
+three GPG-encrypted artifacts per run — the database dump, a tar of `media/`,
+and a manifest carrying the artifact hashes plus the hashes of sampled
+originals. Each is written to a primary directory, copied to a second local
+disk with hashes compared, and uploaded offsite when `RCLONE_REMOTE` is set.
+
+It also runs a **restore drill** on its own schedule: decrypt, restore into a
+disposable database, unpack the media tree, and re-hash the sampled originals
+against the manifest. A backup that cannot be restored fails visibly instead
+of looking healthy.
+
+Set `BACKUP_ENCRYPTION_KEY` and keep a copy of it somewhere other than this
+machine. Without it every artifact is unrecoverable.
+
+### Moving between paperless versions
+
+The nightly pair restores into the *same* paperless version. To move an
+archive to a newer one, use paperless's own exporter by hand:
 
 ```bash
 docker compose exec webserver document_exporter ../export
 ```
 
-Encryption and offsite sync are not wired up yet. `backup/` already does
-both — GPG plus rclone, with a restore drill in `verify-restore.sh` — and
-needs repointing from the old storage layout at `export/`.
+Full procedure, including recovery on a clean host: [backup and recovery](docs/operations/backup-recovery.md).
+
+That is deliberately not automated — it lives inside the webserver container,
+paperless has no scheduler for it, and reaching it from the backup container
+would mean mounting the docker socket. See
+[ADR 0006](docs/adr/0006-paperless-ngx-replaces-docvault.md).
 
 ## Not here yet
 

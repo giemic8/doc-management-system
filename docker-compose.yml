@@ -131,7 +131,53 @@ services:
     #           count: all
     #           capabilities: [gpu]
 
+  # Nightly encrypted backup plus a scheduled restore drill.
+  #
+  # Runs pg_dump and tars media/ itself rather than calling paperless's
+  # document_exporter: that is a Django command inside the webserver
+  # container, and reaching it would mean mounting the docker socket here --
+  # root on the host, to save a pg_dump. See docs/operations/backup-recovery.md
+  # for the manual document_exporter path, which is what moves an archive
+  # between paperless versions.
+  backup:
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://paperless:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/paperless
+      MEDIA_PATH: /paperless-media
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?set BACKUP_ENCRYPTION_KEY in .env}
+      BACKUP_REPLICA_DIR: /backups-replica
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      REQUIRE_OFFSITE_BACKUP: ${REQUIRE_OFFSITE_BACKUP:-false}
+      # Disposable target for the drill. The name is pattern-checked in
+      # verify-restore.sh so a typo cannot point it at the live database.
+      RESTORE_DATABASE_NAME: paperless_restore_verify
+      RESTORE_DATABASE_URL: postgres://paperless:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/paperless_restore_verify
+      RESTORE_VERIFY_INTERVAL_SECONDS: ${RESTORE_VERIFY_INTERVAL_SECONDS:-604800}
+      RESTORE_SAMPLE_SIZE: ${RESTORE_SAMPLE_SIZE:-25}
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-}
+      SMTP_URL: ${SMTP_URL:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      BACKUP_ALERT_EMAIL_TO: ${BACKUP_ALERT_EMAIL_TO:-}
+      BACKUP_ALERT_EMAIL_FROM: ${BACKUP_ALERT_EMAIL_FROM:-}
+    volumes:
+      # Read-only: a backup process has no business writing to the archive.
+      - ${PAPERLESS_MEDIA_PATH:-./media}:/paperless-media:ro
+      - backup_status:/backups
+      # Must be a different physical disk than the media path, or the second
+      # local copy is not a second copy.
+      - ${BACKUP_REPLICA_HOST_PATH:-./backup-replica}:/backups-replica
+      - ${RCLONE_CONFIG_HOST_PATH:-./backup/rclone.conf.example}:/config/rclone/rclone.conf:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
+  backup_status:
   pgdata:
   redisdata:
   ollamadata:
