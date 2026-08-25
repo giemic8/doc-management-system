@@ -42,7 +42,7 @@ status_init() {
       completedAt: null,
       lastRestoreAt: ($previous[0].lastRestoreAt // null),
       dbBackupSizeBytes: 0,
-      storageBackupSizeBytes: 0,
+      mediaBackupSizeBytes: 0,
       success: false,
       stages: {
         created: { state: "pending", at: null },
@@ -78,9 +78,9 @@ status_set_stage() {
 
 status_set_sizes() {
   local db_size="$1"
-  local storage_size="$2"
-  status_replace '.dbBackupSizeBytes = $db_size | .storageBackupSizeBytes = $storage_size' \
-    --argjson db_size "${db_size}" --argjson storage_size "${storage_size}"
+  local media_size="$2"
+  status_replace '.dbBackupSizeBytes = $db_size | .mediaBackupSizeBytes = $media_size' \
+    --argjson db_size "${db_size}" --argjson media_size "${media_size}"
 }
 
 status_mark_backup_complete() {

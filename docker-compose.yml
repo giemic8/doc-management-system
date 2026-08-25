@@ -1,127 +1,128 @@
+# paperless-ngx for the family archive.
+#
+# The LLM backend is chosen by one variable, AI_BACKEND, which selects the
+# env file mounted into the webserver:
+#
+#   AI_BACKEND=claude docker compose up -d
+#   AI_BACKEND=ollama docker compose --profile ollama up -d
+#
+# Read README.md before the first start. Settings entered under
+# Settings -> Application Configuration in the admin UI take precedence
+# over these variables, which is the one way to make the switch silently
+# stop working.
+
 services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    container_name: dms_postgres
-    restart: always
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-dms_db}
-      POSTGRES_USER: ${POSTGRES_USER:-dms_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dms_secret_password}
-    ports:
-      - "5432:5432"
+  broker:
+    image: docker.io/library/redis:7
+    restart: unless-stopped
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dms_user} -d ${POSTGRES_DB:-dms_db}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    container_name: dms_redis
-    restart: always
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
 
-  postgres-test:
-    image: pgvector/pgvector:pg16
-    profiles: ["test"]
-    environment:
-      POSTGRES_DB: dms_db_test
-      POSTGRES_USER: dms_user
-      POSTGRES_PASSWORD: dms_secret_password
-    ports:
-      - "${DMS_TEST_POSTGRES_PORT:-5433}:5432"
-    tmpfs:
-      - /var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dms_user -d dms_db_test"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis-test:
-    image: redis:7-alpine
-    profiles: ["test"]
-    ports:
-      - "${DMS_TEST_REDIS_PORT:-6380}:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: dms_backend
-    restart: always
-    ports:
-      - "4000:4000"
-    environment:
-      NODE_ENV: production
-      PORT: 4000
-      DATABASE_URL: postgres://${POSTGRES_USER:-dms_user}:${POSTGRES_PASSWORD:-dms_secret_password}@postgres:5432/${POSTGRES_DB:-dms_db}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_change_in_prod}
-      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-change_this_mfa_encryption_key_in_prod}
-      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-change_this_storage_encryption_key_in_prod}
-      STORAGE_ENCRYPTION_ENABLED: ${STORAGE_ENCRYPTION_ENABLED:-false}
-      STORAGE_PATH: /app/storage
-      # Ticket #31 — second independent copy of every durable original.
-      # Must be a distinct host mount from STORAGE_PATH (different disk),
-      # or the dual-copy write buys no real redundancy against disk failure.
-      STORAGE_REPLICA_PATH: /app/storage-replica
-      # Ticket #37 — outbound SMTP for operations alerts. Empty SMTP_HOST
-      # keeps the channel switched off; incidents are still recorded and
-      # shown in the operations dashboard as undelivered.
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_SECURE: ${SMTP_SECURE:-false}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_USERNAME: ${SMTP_USERNAME:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-}
-      BACKUP_ALERT_EMAIL_FROM: ${BACKUP_ALERT_EMAIL_FROM:-}
+  db:
+    image: docker.io/library/postgres:17
+    restart: unless-stopped
     volumes:
-      - ./storage:/app/storage
-      - ${STORAGE_REPLICA_HOST_PATH:-./storage-replica}:/app/storage-replica
-      - backup_status:/app/backup-status:ro
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless -d paperless"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Office documents (docx/xlsx/odt) -> PDF. DocVault could not read these
+  # at all; paperless converts them on ingest.
+  gotenberg:
+    image: docker.io/gotenberg/gotenberg:8
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--chromium-disable-javascript=true"
+      - "--chromium-allow-list=file:///tmp/.*"
+
+  tika:
+    image: docker.io/apache/tika:latest
+    restart: unless-stopped
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    restart: unless-stopped
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
-      redis:
+      broker:
         condition: service_healthy
-
-  worker:
-    build:
-      context: ./worker
-      dockerfile: Dockerfile
-    # No container_name: fixed names collide when scaling to N replicas via
-    # `docker compose up -d --scale worker=4`.
-    restart: always
-    environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-dms_user}:${POSTGRES_PASSWORD:-dms_secret_password}@postgres:5432/${POSTGRES_DB:-dms_db}
-      STORAGE_PATH: /app/storage
-      OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
-      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-change_this_storage_encryption_key_in_prod}
-      METRICS_PORT: 9100
+      gotenberg:
+        condition: service_started
+      tika:
+        condition: service_started
+    ports:
+      - "${PAPERLESS_PORT:-8000}:8000"
     volumes:
-      - ./storage:/app/storage
-    # Uncomment to enable NVIDIA GPU acceleration for Tesseract/Ollama
-    # (requires the NVIDIA Container Toolkit installed on the host):
+      # Point these at the ZFS mirror in production. media/ holds the
+      # originals, the PDF/A archive versions and thumbnails; data/ holds
+      # the search index and the embedding index.
+      - ${PAPERLESS_DATA_PATH:-./data}:/usr/src/paperless/data
+      - ${PAPERLESS_MEDIA_PATH:-./media}:/usr/src/paperless/media
+      - ${PAPERLESS_EXPORT_PATH:-./export}:/usr/src/paperless/export
+      - ${PAPERLESS_CONSUME_PATH:-./consume}:/usr/src/paperless/consume
+    env_file:
+      # The whole switch. Missing file => compose fails loudly rather than
+      # starting with AI silently off.
+      - ./ai/${AI_BACKEND:-claude}.env
+    environment:
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_DBHOST: db
+      PAPERLESS_DBNAME: paperless
+      PAPERLESS_DBUSER: paperless
+      PAPERLESS_DBPASS: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY:?set PAPERLESS_SECRET_KEY in .env}
+      PAPERLESS_URL: ${PAPERLESS_URL:-http://localhost:8000}
+      PAPERLESS_TIME_ZONE: ${PAPERLESS_TIME_ZONE:-Europe/Berlin}
+      PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER:-}
+      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:-}
+
+      PAPERLESS_OCR_LANGUAGE: deu+eng
+      PAPERLESS_OCR_LANGUAGES: deu eng
+
+      # Human-readable tree on disk: 2026/Finanzamt/2026-03-14_Steuerbescheid.pdf
+      # If paperless ever goes away, the archive is still navigable.
+      PAPERLESS_FILENAME_FORMAT: "{{ created_year }}/{{ correspondent }}/{{ created }}_{{ title }}"
+      PAPERLESS_FILENAME_FORMAT_REMOVE_NONE: "true"
+
+      PAPERLESS_TIKA_ENABLED: 1
+      PAPERLESS_TIKA_ENDPOINT: http://tika:9998
+      PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
+
+      PAPERLESS_CONSUMER_POLLING_INTERVAL: ${PAPERLESS_CONSUMER_POLLING_INTERVAL:-0}
+      PAPERLESS_CONSUMER_RECURSIVE: "true"
+      PAPERLESS_CONSUMER_SUBDIRS_AS_TAGS: "true"
+
+      # Empty for ollama; the Anthropic key for claude. Kept out of the
+      # committed ai/*.env files on purpose.
+      PAPERLESS_AI_LLM_API_KEY: ${AI_API_KEY:-}
+
+      USERMAP_UID: ${USERMAP_UID:-1000}
+      USERMAP_GID: ${USERMAP_GID:-1000}
+
+  # Only started with --profile ollama. Nothing to run when Claude serves
+  # the extraction.
+  ollama:
+    image: docker.io/ollama/ollama:latest
+    profiles: ["ollama"]
+    restart: unless-stopped
+    volumes:
+      - ollamadata:/root/.ollama
+    # Uncomment on a host with the NVIDIA Container Toolkit installed:
     # deploy:
     #   resources:
     #     reservations:
@@ -129,77 +130,54 @@ services:
     #         - driver: nvidia
     #           count: all
     #           capabilities: [gpu]
-    depends_on:
-      postgres:
-        condition: service_healthy
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: dms_frontend
-    restart: always
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
-
-  ollama:
-    image: ollama/ollama:latest
-    container_name: dms_ollama
-    restart: always
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-
-  # Ticket #17 — Offsite Backup & Automated Disaster Recovery.
-  # Standalone container (like `worker`) since pg_dump/gpg/rclone are
-  # external CLI tools, not npm packages. Runs a daily sleep-loop (see
-  # backup/entrypoint.sh) that dumps the DB + document storage, encrypts
-  # both with GPG AES-256, and syncs them offsite via rclone. Writes
-  # last-backup-status.json into the shared `backup_status` volume, which
-  # the `backend` service mounts read-only so GET /api/backup/status can
-  # report backup health on the admin dashboard.
+  # Nightly encrypted backup plus a scheduled restore drill.
+  #
+  # Runs pg_dump and tars media/ itself rather than calling paperless's
+  # document_exporter: that is a Django command inside the webserver
+  # container, and reaching it would mean mounting the docker socket here --
+  # root on the host, to save a pg_dump. See docs/operations/backup-recovery.md
+  # for the manual document_exporter path, which is what moves an archive
+  # between paperless versions.
   backup:
     build:
       context: ./backup
       dockerfile: Dockerfile
-    container_name: dms_backup
-    restart: always
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-dms_user}:${POSTGRES_PASSWORD:-dms_secret_password}@postgres:5432/${POSTGRES_DB:-dms_db}
-      STORAGE_PATH: /app/storage
-      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-change_this_backup_encryption_key_in_prod}
+      DATABASE_URL: postgres://paperless:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/paperless
+      MEDIA_PATH: /paperless-media
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?set BACKUP_ENCRYPTION_KEY in .env}
       BACKUP_REPLICA_DIR: /backups-replica
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
       REQUIRE_OFFSITE_BACKUP: ${REQUIRE_OFFSITE_BACKUP:-false}
-      RESTORE_DATABASE_NAME: dms_restore_verify
-      RESTORE_DATABASE_URL: postgres://${POSTGRES_USER:-dms_user}:${POSTGRES_PASSWORD:-dms_secret_password}@postgres:5432/dms_restore_verify
+      # Disposable target for the drill. The name is pattern-checked in
+      # verify-restore.sh so a typo cannot point it at the live database.
+      RESTORE_DATABASE_NAME: paperless_restore_verify
+      RESTORE_DATABASE_URL: postgres://paperless:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/paperless_restore_verify
       RESTORE_VERIFY_INTERVAL_SECONDS: ${RESTORE_VERIFY_INTERVAL_SECONDS:-604800}
       RESTORE_SAMPLE_SIZE: ${RESTORE_SAMPLE_SIZE:-25}
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-}
       SMTP_URL: ${SMTP_URL:-}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       BACKUP_ALERT_EMAIL_TO: ${BACKUP_ALERT_EMAIL_TO:-}
       BACKUP_ALERT_EMAIL_FROM: ${BACKUP_ALERT_EMAIL_FROM:-}
-      # Leave RCLONE_REMOTE empty to run backups locally without an offsite
-      # upload (e.g. local dev) — see backup/scripts/run-backup.sh.
-      RCLONE_REMOTE: ${RCLONE_REMOTE:-}
     volumes:
-      - ./storage:/app/storage:ro
+      # Read-only: a backup process has no business writing to the archive.
+      - ${PAPERLESS_MEDIA_PATH:-./media}:/paperless-media:ro
       - backup_status:/backups
-      # Must point at another physical disk/mount in production.
+      # Must be a different physical disk than the media path, or the second
+      # local copy is not a second copy.
       - ${BACKUP_REPLICA_HOST_PATH:-./backup-replica}:/backups-replica
-      # Default example keeps local setup bootable. Production points this
-      # variable at gitignored backup/rclone.conf containing credentials.
       - ${RCLONE_CONFIG_HOST_PATH:-./backup/rclone.conf.example}:/config/rclone/rclone.conf:ro
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
 
 volumes:
-  postgres_data:
-  redis_data:
-  ollama_data:
   backup_status:
+  pgdata:
+  redisdata:
+  ollamadata:

@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 
-# Creates encrypted database, storage, and verification-manifest artifacts.
-# Run acknowledged only after primary and replica copies match. Offsite upload
-# can be mandatory in production with REQUIRE_OFFSITE_BACKUP=true.
+# Creates encrypted database, media, and verification-manifest artifacts for
+# the paperless-ngx archive. Run acknowledged only after primary and replica
+# copies match. Offsite upload can be mandatory with REQUIRE_OFFSITE_BACKUP=true.
+#
+# Deliberately does NOT call paperless's document_exporter: that is a Django
+# command inside the webserver container, and reaching it would mean mounting
+# the docker socket here -- root on the host, to save a pg_dump. This pair
+# (dump + media tree) restores into the same paperless version, which is the
+# case that actually occurs. document_exporter stays the manual path for
+# moving between versions; see docs/operations/backup-recovery.md.
 
 set -Eeuo pipefail
 
@@ -12,7 +19,7 @@ PRIMARY_DIR="${BACKUP_PRIMARY_DIR:-${BACKUP_DIR}/primary}"
 REPLICA_DIR="${BACKUP_REPLICA_DIR:-/backups-replica}"
 TIMESTAMP="$(date -u +%Y%m%d-%H%M%S)"
 BACKUP_ID="${BACKUP_ID:-${TIMESTAMP}}"
-WORK_DIR="$(mktemp -d /tmp/docvault-backup.XXXXXX)"
+WORK_DIR="$(mktemp -d /tmp/paperless-backup.XXXXXX)"
 CURRENT_STAGE="created"
 PASSPHRASE_FILE="${WORK_DIR}/gpg-passphrase"
 
@@ -35,7 +42,7 @@ on_error() {
   if [ -f "${STATUS_FILE}" ]; then
     status_set_stage "${CURRENT_STAGE}" failed "${message}" || true
     status_mark_failure "${message}" || true
-    "${SCRIPT_DIR}/notify-failure.sh" "DocVault backup failed" "${message}" || true
+    "${SCRIPT_DIR}/notify-failure.sh" "paperless backup failed" "${message}" || true
   fi
   exit "${exit_code}"
 }
@@ -50,7 +57,7 @@ if [[ ! "${BACKUP_ID}" =~ ^[A-Za-z0-9_-]+$ ]]; then
   false
 fi
 
-for required in DATABASE_URL STORAGE_PATH BACKUP_ENCRYPTION_KEY; do
+for required in DATABASE_URL MEDIA_PATH BACKUP_ENCRYPTION_KEY; do
   if [ -z "${!required:-}" ]; then
     echo "ERROR: ${required} is not set" >&2
     false
@@ -66,21 +73,21 @@ printf '%s' "${BACKUP_ENCRYPTION_KEY}" > "${PASSPHRASE_FILE}"
 chmod 600 "${PASSPHRASE_FILE}"
 
 DB_FILE="db-${BACKUP_ID}.sql.gz"
-STORAGE_FILE="storage-${BACKUP_ID}.tar.gz"
+MEDIA_FILE="media-${BACKUP_ID}.tar.gz"
 MANIFEST_FILE="manifest-${BACKUP_ID}.json"
 
-log "Creating database dump, storage archive, and restore manifest."
+log "Creating database dump, media archive, and restore manifest."
 pg_dump "${DATABASE_URL}" | gzip > "${WORK_DIR}/${DB_FILE}"
-tar -czf "${WORK_DIR}/${STORAGE_FILE}" -C "$(dirname "${STORAGE_PATH}")" "$(basename "${STORAGE_PATH}")"
+tar -czf "${WORK_DIR}/${MEDIA_FILE}" -C "$(dirname "${MEDIA_PATH}")" "$(basename "${MEDIA_PATH}")"
 
 DB_SHA256="$(sha256sum "${WORK_DIR}/${DB_FILE}" | awk '{print $1}')"
-STORAGE_SHA256="$(sha256sum "${WORK_DIR}/${STORAGE_FILE}" | awk '{print $1}')"
+MEDIA_SHA256="$(sha256sum "${WORK_DIR}/${MEDIA_FILE}" | awk '{print $1}')"
 SAMPLES_FILE="${WORK_DIR}/samples.json"
 printf '[]\n' > "${SAMPLES_FILE}"
 
 sample_count=0
 while IFS= read -r -d '' original; do
-  relative_path="${original#"${STORAGE_PATH}"/}"
+  relative_path="${original#"${MEDIA_PATH}"/}"
   original_sha256="$(sha256sum "${original}" | awk '{print $1}')"
   jq --arg path "${relative_path}" --arg sha256 "${original_sha256}" \
     '. + [{path: $path, sha256: $sha256}]' "${SAMPLES_FILE}" > "${SAMPLES_FILE}.tmp"
@@ -89,32 +96,32 @@ while IFS= read -r -d '' original; do
   if [ "${sample_count}" -ge "${RESTORE_SAMPLE_SIZE:-25}" ]; then
     break
   fi
-done < <(find "${STORAGE_PATH}/originals" -type f -print0 2>/dev/null | sort -z)
+done < <(find "${MEDIA_PATH}/documents/originals" -type f -print0 2>/dev/null | sort -z)
 
 jq -n \
   --arg backup_id "${BACKUP_ID}" \
   --arg created_at "$(status_now)" \
   --arg db_file "${DB_FILE}" \
   --arg db_sha256 "${DB_SHA256}" \
-  --arg storage_file "${STORAGE_FILE}" \
-  --arg storage_sha256 "${STORAGE_SHA256}" \
+  --arg media_file "${MEDIA_FILE}" \
+  --arg media_sha256 "${MEDIA_SHA256}" \
   --slurpfile samples "${SAMPLES_FILE}" \
-  '{version: 1, backupId: $backup_id, createdAt: $created_at, database: {file: $db_file, sha256: $db_sha256}, storage: {file: $storage_file, sha256: $storage_sha256}, sampledOriginals: $samples[0]}' \
+  '{version: 1, backupId: $backup_id, createdAt: $created_at, database: {file: $db_file, sha256: $db_sha256}, media: {file: $media_file, sha256: $media_sha256}, sampledOriginals: $samples[0]}' \
   > "${WORK_DIR}/${MANIFEST_FILE}"
 
-for artifact in "${DB_FILE}" "${STORAGE_FILE}" "${MANIFEST_FILE}"; do
+for artifact in "${DB_FILE}" "${MEDIA_FILE}" "${MANIFEST_FILE}"; do
   gpg --batch --yes --pinentry-mode loopback --passphrase-file "${PASSPHRASE_FILE}" \
     --cipher-algo AES256 --symmetric --output "${PRIMARY_DIR}/${artifact}.gpg" "${WORK_DIR}/${artifact}"
 done
 
 db_size="$(stat -c%s "${PRIMARY_DIR}/${DB_FILE}.gpg")"
-storage_size="$(stat -c%s "${PRIMARY_DIR}/${STORAGE_FILE}.gpg")"
-status_set_sizes "${db_size}" "${storage_size}"
+media_size="$(stat -c%s "${PRIMARY_DIR}/${MEDIA_FILE}.gpg")"
+status_set_sizes "${db_size}" "${media_size}"
 status_set_stage created succeeded "Encrypted artifacts created"
 
 CURRENT_STAGE="replicated"
 log "Copying encrypted artifacts to independent local replica."
-for artifact in "${DB_FILE}.gpg" "${STORAGE_FILE}.gpg" "${MANIFEST_FILE}.gpg"; do
+for artifact in "${DB_FILE}.gpg" "${MEDIA_FILE}.gpg" "${MANIFEST_FILE}.gpg"; do
   cp "${PRIMARY_DIR}/${artifact}" "${REPLICA_DIR}/${artifact}"
   primary_hash="$(sha256sum "${PRIMARY_DIR}/${artifact}" | awk '{print $1}')"
   replica_hash="$(sha256sum "${REPLICA_DIR}/${artifact}" | awk '{print $1}')"
@@ -125,7 +132,7 @@ status_set_stage replicated succeeded "Replica hashes match"
 CURRENT_STAGE="uploaded"
 if [ -n "${RCLONE_REMOTE:-}" ]; then
   log "Uploading encrypted artifacts offsite."
-  for artifact in "${DB_FILE}.gpg" "${STORAGE_FILE}.gpg" "${MANIFEST_FILE}.gpg"; do
+  for artifact in "${DB_FILE}.gpg" "${MEDIA_FILE}.gpg" "${MANIFEST_FILE}.gpg"; do
     rclone copyto "${PRIMARY_DIR}/${artifact}" "${RCLONE_REMOTE%/}/${artifact}"
   done
   rclone check "${PRIMARY_DIR}" "${RCLONE_REMOTE}" --one-way \
